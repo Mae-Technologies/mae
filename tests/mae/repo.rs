@@ -67,7 +67,7 @@ async fn should_get_empty_records() {
         )
         .and_where(RepoExampleFields::value, Where::Equals(1));
 
-    let res = execute!(ctx, builder);
+    let res = builder.execute(&ctx).await;
     assert!(res.is_ok());
 
     assert!(res.unwrap().is_empty());
@@ -87,7 +87,25 @@ async fn should_get_records() {
         )
         .and_where(RepoExampleFields::value, Where::Equals(1));
 
-    let res = execute!(ctx, builder);
+    let res = builder.execute(&ctx).await;
     assert!(res.is_ok());
     assert_eq!(res.unwrap().is_empty(), false);
+}
+
+#[tokio::test]
+async fn should_update_records() {
+    let ctx = get_context::<CustomContext>(CustomContext {})
+        .await
+        .unwrap();
+
+    let builder = RepoExample::update_builder(vec![RepoExampleUpdateFields::value(11)], 1)
+        .unwrap()
+        .and_where(RepoExampleFields::value, Where::Equals(1));
+
+    println!("{}", builder.build_string());
+
+    let res = builder.execute(&ctx).await;
+    println!("{:?}", res);
+    //
+    assert!(res.is_ok());
 }

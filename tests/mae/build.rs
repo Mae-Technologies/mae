@@ -20,9 +20,9 @@ pub async fn get_context<T: Clone>(custom_context: T) -> Result<RequestContext<T
     let conn = connect();
 
     let ctx = RequestContext::<T> {
-        db_pool: conn,
+        db_pool: conn.into(),
         session: Session { user_id: 1 },
-        custom: custom_context,
+        custom: custom_context.into(),
     };
     Ok(ctx)
 }

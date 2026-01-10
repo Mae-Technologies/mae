@@ -141,14 +141,13 @@ pub fn derive_repo(item: TokenStream) -> TokenStream {
 
                     let result: #struct_name = sqlx::query_as (
                         &sql)#(.bind(#idents))*
-                    .fetch_one(&ctx.db_pool).await?;
+                    .fetch_one(ctx.db_pool()).await?;
 
                     Ok(result)
                 }
 
-                fn update(update_fields: Vec<#update_fields_type>, sys_client: u64) -> Result<UpdateRepo<#update_fields_type, #fields_type>, anyhow::Error> {
-                // UpdateRepo::<#update_fields_type, #fields_type>::update_builder(update_fields, sys_client)
-                    unimplemented!("functionality is currently unimplemented. Please update the Mae-Repo-Macro library");
+                fn update_builder(update_fields: Vec<#update_fields_type>, sys_client: u64) -> Result<UpdateRepo<#update_fields_type, #fields_type>, anyhow::Error> {
+                UpdateRepo::<#update_fields_type, #fields_type>::update_builder(update_fields, sys_client)
                 }
 
                 pub fn select_builder(sys_client: u64) -> Result<SelectRepo<#fields_type>, anyhow::Error> {
@@ -258,6 +257,12 @@ pub fn repo(args: TokenStream, input: TokenStream) -> TokenStream {
             updated_at,
         }
 
+        impl Display for #columns_ident {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{}", format!("{:?}", self).to_lowercase())
+        }
+        }
+
     };
     // Defining Column Names for Update
     let table_update_columns = fields.iter().map(|f| {
@@ -267,6 +272,11 @@ pub fn repo(args: TokenStream, input: TokenStream) -> TokenStream {
     });
 
     let update_columns_ident = format_ident!("{}UpdateFields", &ast.ident);
+    let impl_update_cols = fields.iter().map(|f| {
+        let name = &f.ident;
+        quote! { Self::#name(v) => args.add(v) }
+    });
+
     let update_columns_enum = quote! {
         #[derive(Debug, Clone)]
         #[allow(non_camel_case_types)]
@@ -276,6 +286,24 @@ pub fn repo(args: TokenStream, input: TokenStream) -> TokenStream {
             comment(String),
             tags(Value),
             sys_detail(Value),
+        }
+
+        impl BindTo for #update_columns_ident {
+            fn bind<'q>(&'q self, args: &mut sqlx::postgres::PgArguments) {
+                let _ = match self {
+                    #(#impl_update_cols,)*
+                    Self::status(v) => args.add(v),
+                    Self::comment(v) => args.add(v),
+                    Self::tags(v) => args.add(v),
+                    Self::sys_detail(v) => args.add(v),
+                };
+            }
+        }
+
+        impl Display for #update_columns_ident {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "{}", format!("{:?}", self).to_lowercase())
+            }
         }
     };
 
@@ -289,12 +317,6 @@ pub fn repo(args: TokenStream, input: TokenStream) -> TokenStream {
         #update_columns_enum
 
         #columns_enum
-
-        impl fmt::Display for #columns_ident {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                write!(f, "{}", format!("{:?}", self).to_lowercase())
-            }
-        }
 
         impl SelectBuilder<#columns_ident, #repo_ident, RequestContext> for SelectRepo<#columns_ident> {
             fn get_sys_client_field() -> #columns_ident {
@@ -313,14 +335,17 @@ pub fn repo(args: TokenStream, input: TokenStream) -> TokenStream {
             fn copy_with(&self, where_block: WhereBlock<#columns_ident>) -> SelectRepo<#columns_ident> {
                 SelectRepo {
                     where_block: where_block,
-                    build_string: Some(self.get_where_string())
+                    build_string: Some(self.get_where_string(None))
                 }
             }
         }
 
-        impl UpdateBuilder<#update_columns_ident, #columns_ident, #repo_ident> for UpdateRepo<#update_columns_ident, #columns_ident> {
-            fn execute(&self) -> String {// Result<Vec<#repo_ident>, anyhow::Error> {
-                todo!();
+        impl UpdateBuilder<#update_columns_ident, #columns_ident, #repo_ident, RequestContext> for UpdateRepo<#update_columns_ident, #columns_ident> {
+            fn get_update_block(&self) -> &Vec<#update_columns_ident> {
+                return &self.update_block;
+            }
+            fn get_repo_name() -> String {
+                #repo_ident::get_repo_name()
             }
             fn get_sys_client_field() -> #columns_ident {
                 #columns_ident::sys_client

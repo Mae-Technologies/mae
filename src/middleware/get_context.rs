@@ -6,12 +6,13 @@ use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::error::InternalError;
 use actix_web::middleware::Next;
 use actix_web::{FromRequest, HttpMessage, HttpResponse, web};
+use anyhow::anyhow;
 use sqlx::PgPool;
 use std::sync::Arc;
 
 // WARNING: This function currently doesn't work... although it compiles.
 // route 500's with a 'missing expected request extension data' message
-pub async fn get_context<T: 'static>(
+pub async fn get_context<T: 'static + Clone>(
     mut req: ServiceRequest,
     next: Next<impl MessageBody>,
 ) -> Result<ServiceResponse<impl MessageBody>, actix_web::Error> {
@@ -22,22 +23,24 @@ pub async fn get_context<T: 'static>(
 
     match session.get_session().map_err(e500)? {
         Some(session_data) => {
-            let db_pool_arc = &*Arc::clone(
+            let db_pool = Arc::clone(
                 &req.app_data::<web::Data<PgPool>>()
-                    .unwrap()
+                    .ok_or_else(|| anyhow!("Unable to access PgPool."))
+                    .map_err(e500)?
                     .clone()
-                    .into_inner()
-                    .clone(),
+                    .into_inner(),
             );
-            let custom = req
-                .app_data::<web::Data<T>>()
-                .unwrap()
-                .clone()
-                .into_inner()
-                .clone();
+
+            let custom = Arc::clone(
+                &req.app_data::<web::Data<T>>()
+                    .ok_or_else(|| anyhow!("Unable to access Context."))
+                    .map_err(e500)?
+                    .clone()
+                    .into_inner(),
+            );
             let session = Session::from(session_data);
             req.extensions_mut().insert(RequestContext {
-                db_pool: db_pool_arc.to_owned(),
+                db_pool,
                 custom,
                 session,
             });
