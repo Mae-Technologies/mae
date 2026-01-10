@@ -1,5 +1,6 @@
 pub mod prelude {
-    pub use super::select_update_builder::*;
+    // TODO: delete me
+    // pub use super::select_update_builder::*;
     pub use crate::request_context::ContextAccessor;
     pub use anyhow::{Context, anyhow};
     pub use chrono::{DateTime, Utc};
@@ -33,5 +34,5 @@ pub mod prelude {
         }
     }
 }
-pub mod select_update_builder;
 pub mod builder;
+pub mod select_update_builder;

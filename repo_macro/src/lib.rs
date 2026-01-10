@@ -317,53 +317,79 @@ pub fn repo(args: TokenStream, input: TokenStream) -> TokenStream {
         #update_columns_enum
 
         #columns_enum
-
-        impl SelectBuilder<#columns_ident, #repo_ident, RequestContext> for SelectRepo<#columns_ident> {
-            fn get_sys_client_field() -> #columns_ident {
-                #columns_ident::sys_client
-            }
-
-            fn get_repo_name() -> String {
-                #repo_ident::get_repo_name()
-            }
-        }
-
-        impl WhereBuilder<#columns_ident> for SelectRepo<#columns_ident> {
-            fn get_where_block(&self) -> WhereBlock<#columns_ident> {
-                self.where_block.clone()
-            }
-            fn copy_with(&self, where_block: WhereBlock<#columns_ident>) -> SelectRepo<#columns_ident> {
-                SelectRepo {
-                    where_block: where_block,
-                    build_string: Some(self.get_where_string(None))
-                }
-            }
-        }
-
-        impl UpdateBuilder<#update_columns_ident, #columns_ident, #repo_ident, RequestContext> for UpdateRepo<#update_columns_ident, #columns_ident> {
-            fn get_update_block(&self) -> &Vec<#update_columns_ident> {
-                return &self.update_block;
-            }
-            fn get_repo_name() -> String {
-                #repo_ident::get_repo_name()
-            }
-            fn get_sys_client_field() -> #columns_ident {
-                #columns_ident::sys_client
-            }
-        }
-
-        impl WhereBuilder<#columns_ident> for UpdateRepo<#update_columns_ident, #columns_ident> {
-            fn get_where_block(&self) -> WhereBlock<#columns_ident> {
-                self.where_block.clone()
-            }
-            fn copy_with(&self, where_block: WhereBlock<#columns_ident>) -> UpdateRepo<#update_columns_ident, #columns_ident> {
-                UpdateRepo {
-                    update_block: self.update_block.clone().to_owned(),
-                    where_block: where_block
-                }
-            }
-        }
     }
     .into()
 }
 
+#[proc_macro_attribute]
+pub fn mae_repo(args: TokenStream, input: TokenStream) -> TokenStream {
+
+    let table_name = parse_macro_input!(args as LitStr);
+    let ast = parse_macro_input!(input as DeriveInput);
+    let table_name = table_name.value();
+
+    let repo_ident = &ast.ident;
+
+    // confirm the macro is being called on a Struct Type and extract the fields.
+    let fields = match ast.data {
+        Struct(DataStruct {
+            fields: Named(FieldsNamed { ref named, .. }),
+            ..
+        }) => named,
+        _ => unimplemented!("Only works for structs"),
+    };
+
+    // rebuild the struct fields
+    let params = fields.iter().map(|f| {
+        let name = &f.ident;
+        let ty = &f.ty;
+        quote! {pub #name: #ty}
+    });
+
+    // rebuild repo struct with the existing fields and default fields for the repo
+    // NOTE: here, we are deriving the Repo with the proc_macro_derive fn from above
+    let repo = quote! {
+
+        #[derive(MaeRepo, sqlx::FromRow, Serialize, Deserialize, Clone, Debug)]
+        pub struct #repo_ident {
+            #[id] pub id: i32,
+            pub sys_client: i32,
+            pub status: DomainStatus,
+            #(#params,)*
+            pub comment: Option<String>,
+            #[sqlx(json)]
+            pub tags: Value,
+            #[sqlx(json)]
+            pub sys_detail: Value,
+            #[from_context] pub created_by: i32,
+            #[from_context] pub updated_by: i32,
+            #[gen_date] pub created_at: DateTime<Utc>,
+            pub updated_at: DateTime<Utc>,
+        }
+
+    };
+    repo.into()
+}
+
+#[proc_macro_derive(MaeRepo, attributes(id, from_context, gen_date))]
+pub fn derive_mae_repo(item: TokenStream) -> TokenStream {
+
+    let ast = parse_macro_input!(item as DeriveInput);
+
+    // Making sure it the derive macro is called on a struct;
+    let fields = match &ast.data {
+        Data::Struct(DataStruct {
+            fields: Fields::Named(fields),
+            ..
+        }) => &fields.named,
+        _ => panic!("expected a struct with named fields"),
+    };
+
+    let repo_struct = &ast.ident;
+
+    quote! {
+        impl #repo_struct {
+
+        }
+    }.into()
+}
