@@ -1,4 +1,5 @@
 extern crate proc_macro;
+use proc_macro::Ident;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::Data::Struct;
@@ -259,7 +260,7 @@ pub fn repo(args: TokenStream, input: TokenStream) -> TokenStream {
 
         impl Display for #columns_ident {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{}", format!("{:?}", self).to_lowercase())
+                panic!("unimplemented!")
         }
         }
 
@@ -324,9 +325,8 @@ pub fn repo(args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn mae_repo(args: TokenStream, input: TokenStream) -> TokenStream {
 
-    let table_name = parse_macro_input!(args as LitStr);
+    let repo_name= parse_macro_input!(args as LitStr).value();
     let ast = parse_macro_input!(input as DeriveInput);
-    let table_name = table_name.value();
 
     let repo_ident = &ast.ident;
 
@@ -345,6 +345,16 @@ pub fn mae_repo(args: TokenStream, input: TokenStream) -> TokenStream {
         let ty = &f.ty;
         quote! {pub #name: #ty}
     });
+
+    // 
+    // For ToSql Trait
+    //
+
+    // fields.iter().enumerate().for_each(|(i, f)| {
+    // let (ident, sql_repr, field_name, returning_field) = get_sql_parts(f, Method::Insert, i);
+    // });
+    // fields = ;
+    // values = ;
 
     // rebuild repo struct with the existing fields and default fields for the repo
     // NOTE: here, we are deriving the Repo with the proc_macro_derive fn from above
@@ -367,31 +377,11 @@ pub fn mae_repo(args: TokenStream, input: TokenStream) -> TokenStream {
             pub updated_at: chrono::DateTime<chrono::Utc>,
         }
 
-        impl mae::repo::builder::BindArgs for #repo_ident {
-            fn bind(&self, mut args: &mut sqlx::postgres::PgArguments) {
-                todo!()
-            }
-        }
-        impl mae::repo::builder::ToSql for #repo_ident {
-            fn sql_insert(&self) -> String {
-                todo!()
-            }
-            fn sql_update(&self) -> String {
-                todo!()
-            }
-            fn sql_select(&self) -> String {
-                todo!()
-            }
-        }
-        impl std::fmt::Display for #repo_ident {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "{}", self)
-            }
-        }
+        impl mae::repo::builder::Interface<Context, _Row> for #repo_ident {}
 
-        impl mae::repo::builder::Builder<Context> for #repo_ident {
+        impl mae::repo::builder::Builder<Context, _Row> for #repo_ident {
             fn repo_name() -> String {
-                todo!()
+                #repo_name.to_string()
             }
         }
     };
@@ -412,10 +402,179 @@ pub fn derive_mae_repo(item: TokenStream) -> TokenStream {
         _ => panic!("expected a struct with named fields"),
     };
 
-    let repo_struct = &ast.ident;
+    let repo_ident = &ast.ident;
+    let (repo_option, repo_options_ident) = as_option(&ast);
+    let (repo_typed, repo_typed_ident) = as_typed(&ast);
+    let (repo_variant, repo_variant_ident) = as_variant(&ast);
 
     quote! {
+        #repo_option
+        #repo_variant
+        #repo_typed
+
+        enum _Row {
+            Options(#repo_options_ident),
+            Variant(#repo_variant_ident),
+            Typed(#repo_typed_ident),
+            ForUpdate(#repo_options_ident),
+            ForSelect(#repo_variant_ident),
+            ForInsert(#repo_options_ident),
+        }
+
+        impl mae::repo::builder::BindArgs for _Row {
+            fn bind(&self, mut args: &mut sqlx::postgres::PgArguments) {
+                let _ = match &self {
+                    _Row::ForInsert(opts) | _Row::Options(opts) => {
+                        opts.bind(args);
+                    },
+                    _Row::ForSelect(var) | _Row::Variant(var) => {
+                        // Do Nothing ... there are no bindings in a select statement
+                    }
+                    _ => panic!("BIND NOT IMPLEMENTED")
+                };
+            }
+        }
+        impl mae::repo::builder::ToSql for _Row {
+            fn sql_insert(&self) -> String {
+                match &self {
+                _Row::ForInsert(opts) | _Row::Options(opts) => {
+                let (fields_str, values_str) = opts.sql();
+                return format!("({}) VALUES ({})", fields_str, values_str);
+                    },
+                    _ => panic!("SQL_INSERT NOT IMPLEMENTED")
+            }
+            }
+            fn sql_update(&self) -> String {
+                todo!()
+            }
+            fn sql_select(&self) -> String {
+                match &self {
+                    _Row::ForSelect(var) | _Row::Variant(var) => {
+                        let fields_str = var.sql();
+                        return format!("{}", fields_str);
+                    },
+                    _ => panic!("SQL_INSERT NOT IMPLEMENTED")
+                }
+            }
+        }
+        impl std::fmt::Display for _Row {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "HELLO FROM THE _ROW")
+            }
+        }
 
 
     }.into()
+}
+type Body = proc_macro2::TokenStream;
+type BodyIdent = proc_macro2::TokenStream;
+
+fn as_typed(ast: &DeriveInput) -> (Body, BodyIdent) {
+    let fields = match &ast.data {
+        Data::Struct(DataStruct {
+            fields: Fields::Named(fields),
+    ..
+}) => &fields.named,
+        _ => panic!("expected a struct with named fields")
+    };
+    let body_ident = quote! {_TypedRow};
+    let typed = fields.iter().map(|f| {
+        let name = &f.ident;
+        let ty = &f.ty;
+        quote! {#name(#ty)}
+    });
+    let body = quote! {
+        enum _TypedRow {
+            #(#typed,)*
+        }
+    };
+    (body, body_ident)
+}
+
+fn as_variant(ast: &DeriveInput) -> (Body, BodyIdent) {
+    let fields = match &ast.data {
+        Data::Struct(DataStruct {
+            fields: Fields::Named(fields),
+    ..
+}) => &fields.named,
+        _ => panic!("expected a struct with named fields")
+    };
+    let body_ident = quote! {_VariantRow};
+    let typed = fields.iter().map(|f| {
+        let name = &f.ident;
+        let ty = &f.ty;
+        quote! {#name}
+    });
+    let name_str = fields.iter().map(|f| {
+        f.ident.as_ref().unwrap().to_string()
+    }).collect::<Vec<_>>().join(", ");
+    let body = quote! {
+        enum _VariantRow {
+            #(#typed,)*
+        }
+
+        impl _VariantRow {
+            fn sql(&self) -> String {
+                #name_str.to_string()
+            }
+        }
+    };
+    (body, body_ident)
+}
+fn as_option(ast: &DeriveInput) -> (Body, BodyIdent) {
+    let fields = match &ast.data {
+        Data::Struct(DataStruct {
+            fields: Fields::Named(fields),
+    ..
+}) => &fields.named,
+        _ => panic!("expected a struct with named fields")
+    };
+    let body_ident = quote! {_OptionRow};
+    let typed = fields.iter().map(|f| {
+        let name = &f.ident;
+        let ty = &f.ty;
+        quote! {#name: Option<#ty>}
+    });
+    let string_some= fields.iter().map(|f| {
+        let name = &f.ident;
+        let name_str = name.as_ref().unwrap().to_string();
+        quote! {
+            if let Some(v) = &self.#name {
+                sql.push(format!("{}", #name_str));
+                sql_i.push(format!("${}", i));
+                i += 1;
+            }
+        }
+    });
+    let bind_some = fields.iter().map(|f| {
+        let name = &f.ident;
+        quote! {
+            if let Some(v) = &self.#name {
+                args.add(v);
+            }
+        }
+    });
+    let body = quote! {
+        struct _OptionRow {
+            #(#typed,)*
+        }
+
+        impl _OptionRow {
+            fn sql(&self) -> (String, String) {
+                let mut i = 1;
+                let mut sql = vec![];
+                let mut sql_i = vec![];
+                #(#string_some)*
+
+                return (sql.join(", "), sql_i.join(", "))
+            }
+        }
+        
+        impl mae::repo::builder::BindArgs for _OptionRow {
+            fn bind(&self, mut args: &mut sqlx::postgres::PgArguments) {
+                #(#bind_some)*
+            }
+        }
+    };
+    (body, body_ident)
 }

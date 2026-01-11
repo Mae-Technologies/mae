@@ -1,29 +1,27 @@
-use sqlx::Postgres;
-use sqlx::postgres::PgArguments;
-use sqlx::{Arguments, query::QueryAs};
+use sqlx::Arguments;
 use std::fmt::{self, Display};
+use std::marker::PhantomData;
 
 use crate::request_context::ContextAccessor;
 
-pub trait Field:
-    Display + ToSql + BindArgs + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin
-{
-}
+pub trait FromRow: Display + ToSql + BindArgs {}
 
-impl<F> Field for F where
-    F: Display + ToSql + BindArgs + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin
-{
-}
+impl<F> FromRow for F where F: Display + ToSql + BindArgs {}
 
-pub struct MaeRepo<F: Field> {
+pub trait QueryAs: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Unpin + Send {}
+
+impl<F> QueryAs for F where F: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Unpin + Send {}
+
+pub struct MaeRepo<A: QueryAs, F: FromRow> {
     cmd_block: SqlCmd<F>,
     whr_block: Vec<WhereCondition<F>>,
     repo_name: String,
+    from_row: PhantomData<fn() -> A>,
 }
 
-impl<F: Field> MaeRepo<F> {
-    fn args(&self) -> PgArguments {
-        let mut args = PgArguments::default();
+impl<A: QueryAs, F: FromRow> MaeRepo<A, F> {
+    fn args(&self) -> sqlx::postgres::PgArguments {
+        let mut args = sqlx::postgres::PgArguments::default();
         // NOTE: we need to bind the args before the where statement.
         self.cmd_block.bind(&mut args);
         for w in self.whr_block.iter() {
@@ -31,12 +29,15 @@ impl<F: Field> MaeRepo<F> {
         }
         args
     }
-    async fn fetch_all<CA: ContextAccessor + Send + Unpin>(
+    pub async fn fetch_all<CA: ContextAccessor + Send + Unpin>(
         &self,
         ctx: CA,
-    ) -> anyhow::Result<Vec<F>> {
+    ) -> anyhow::Result<Vec<A>> {
         let sql = self.cmd_block.sql(&self.repo_name, &self.whr_block);
-        let req = sqlx::query_as_with::<'_, Postgres, F, PgArguments>(&sql, self.args());
+        let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments>(
+            &sql,
+            self.args(),
+        );
         return req
             .fetch_all(ctx.db_pool())
             .await
@@ -44,19 +45,20 @@ impl<F: Field> MaeRepo<F> {
     }
 }
 
-impl<F: Field> Display for MaeRepo<F> {
+impl<A: QueryAs, F: FromRow> Display for MaeRepo<A, F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        let sql = self.cmd_block.sql(&self.repo_name, &self.whr_block);
+        write!(f, "{}", sql)
     }
 }
 
-pub enum SqlCmd<F: Field> {
+pub enum SqlCmd<F: FromRow> {
     Select(Vec<F>),
     Insert(Vec<F>),
     Update(Vec<F>),
 }
 
-impl<F: Field> SqlCmd<F> {
+impl<F: FromRow> SqlCmd<F> {
     fn values(&self) -> String {
         match self {
             Self::Insert(v) => v
@@ -81,7 +83,7 @@ impl<F: Field> SqlCmd<F> {
         match self {
             SqlCmd::Select(_) => {
                 format!(
-                    "SELECT {} FROM {} WHERE {};",
+                    "SELECT {} FROM {}{};",
                     self.values(),
                     repo_name,
                     sql_where(whr_block),
@@ -89,7 +91,7 @@ impl<F: Field> SqlCmd<F> {
             }
             SqlCmd::Insert(_) => {
                 format!(
-                    "INSERT INTO {} VALUES {} WHERE {} RETURNING *;",
+                    "INSERT INTO {} {}{} RETURNING *;",
                     repo_name,
                     self.values(),
                     sql_where(whr_block),
@@ -107,8 +109,8 @@ impl<F: Field> SqlCmd<F> {
     }
 }
 
-impl<F: Field> BindArgs for SqlCmd<F> {
-    fn bind(&self, args: &mut PgArguments) {
+impl<F: FromRow> BindArgs for SqlCmd<F> {
+    fn bind(&self, args: &mut sqlx::postgres::PgArguments) {
         match self {
             Self::Select(v) => {
                 for ele in v {
@@ -129,13 +131,13 @@ impl<F: Field> BindArgs for SqlCmd<F> {
     }
 }
 
-pub enum WhereCondition<F: Field> {
+pub enum WhereCondition<F: FromRow> {
     And(F, Where),
     Or(F, Where),
     Begin(F, Where),
 }
 
-impl<F: Field> Display for WhereCondition<F> {
+impl<F: FromRow> Display for WhereCondition<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WhereCondition::Begin(field, cond) => write!(f, "{} {}", field, cond),
@@ -145,8 +147,8 @@ impl<F: Field> Display for WhereCondition<F> {
     }
 }
 
-impl<F: Field> BindArgs for WhereCondition<F> {
-    fn bind(&self, args: &mut PgArguments) {
+impl<F: FromRow> BindArgs for WhereCondition<F> {
+    fn bind(&self, args: &mut sqlx::postgres::PgArguments) {
         match self {
             Self::Begin(_, w) => w.bind(args),
             Self::And(_, w) => w.bind(args),
@@ -155,11 +157,16 @@ impl<F: Field> BindArgs for WhereCondition<F> {
     }
 }
 
-fn sql_where<F: Field>(w: &Vec<WhereCondition<F>>) -> String {
-    w.iter()
+fn sql_where<F: FromRow>(w: &Vec<WhereCondition<F>>) -> String {
+    let whr = w
+        .iter()
         .map(|f| f.to_string())
         .collect::<Vec<_>>()
-        .join(" ")
+        .join(" ");
+    if !whr.is_empty() {
+        return format!(" WHERE {}", whr);
+    }
+    whr
 }
 
 pub enum Where {
@@ -181,7 +188,7 @@ pub enum Where {
 }
 
 impl BindArgs for Where {
-    fn bind(&self, args: &mut PgArguments) {
+    fn bind(&self, args: &mut sqlx::postgres::PgArguments) {
         let _ = match self {
             Self::Equals(v) => args.add(v),
             Self::NotEquals(v) => args.add(v),
@@ -225,7 +232,7 @@ impl Display for Where {
 }
 
 pub trait BindArgs {
-    fn bind(&self, args: &mut PgArguments);
+    fn bind(&self, args: &mut sqlx::postgres::PgArguments);
 }
 
 pub trait ToSql {
@@ -234,29 +241,28 @@ pub trait ToSql {
     fn sql_select(&self) -> String;
 }
 
-pub trait Builder<C: Clone>: Field + KeyAuths {
-    fn build(cmd_block: SqlCmd<Self>) -> MaeRepo<Self> {
-        MaeRepo::<Self> {
+pub trait Builder<C: Clone, F: FromRow>: QueryAs + KeyAuths<F> {
+    fn build(cmd_block: SqlCmd<F>) -> MaeRepo<Self, F> {
+        MaeRepo::<Self, F> {
             cmd_block,
             whr_block: Self::keys(),
             repo_name: Self::repo_name(),
+            from_row: PhantomData,
         }
     }
     fn repo_name() -> String;
 }
 
-pub trait KeyAuths: Field {
-    fn keys() -> Vec<WhereCondition<Self>>;
+pub trait KeyAuths<F: FromRow>: QueryAs {
+    fn keys() -> Vec<WhereCondition<F>>;
 }
 
-// pub trait Interface<C: Clone, F: Field>: Builder<C> + Field {
-//     fn insert_many(row: Vec<Self>) -> MaeRepo<Self> {
-//         Self::build(SqlCmd::Insert(row))
-//     }
-//     fn select(cols: Vec<F>) -> MaeRepo<Self> {
-//         Self::build(SqlCmd::Update(cols))
-//     }
-//     fn update_many(cols: Vec<F>) -> MaeRepo<Self> {
-//         Self::build(SqlCmd::Update(cols))
-//     }
-// }
+pub trait Interface<C: Clone, F: FromRow>: QueryAs + Builder<C, F> {
+    fn insert_many(recs: Vec<F>) -> MaeRepo<Self, F> {
+        Self::build(SqlCmd::Insert(recs))
+    }
+
+    fn select_many(recs: Vec<F>) -> MaeRepo<Self, F> {
+        Self::build(SqlCmd::Select(recs))
+    }
+}
