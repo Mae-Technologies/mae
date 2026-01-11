@@ -1,16 +1,24 @@
 use crate::build::get_context;
-use mae::repo::prelude::*;
+use mae::repo;
 use mae::request_context as mae_context;
+use mae::request_context::ContextAccessor;
+use std::sync::Arc;
 
 #[derive(Clone)]
 struct CustomContext;
 
-type RequestContext = mae_context::RequestContext<CustomContext>;
+type Context = Arc<mae_context::RequestContext<CustomContext>>;
 
-#[mae_repo("repoexample")]
+#[repo::mae_repo("repoexample")]
 pub struct RepoExample {
     pub value: i32,
     pub string_value: String,
+}
+
+impl repo::KeyAuths for RepoExample {
+    fn keys() -> Vec<repo::builder::WhereCondition<Self>> {
+        todo!()
+    }
 }
 
 // #[test]

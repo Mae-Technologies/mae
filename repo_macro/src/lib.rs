@@ -350,23 +350,50 @@ pub fn mae_repo(args: TokenStream, input: TokenStream) -> TokenStream {
     // NOTE: here, we are deriving the Repo with the proc_macro_derive fn from above
     let repo = quote! {
 
-        #[derive(MaeRepo, sqlx::FromRow, Serialize, Deserialize, Clone, Debug)]
+        #[derive(mae::repo::MaeRepo, sqlx::FromRow, serde::Serialize, serde::Deserialize, Clone, Debug)]
         pub struct #repo_ident {
             #[id] pub id: i32,
             pub sys_client: i32,
-            pub status: DomainStatus,
+            pub status: mae::repo::fields::DomainStatus,
             #(#params,)*
             pub comment: Option<String>,
             #[sqlx(json)]
-            pub tags: Value,
+            pub tags: serde_json::Value,
             #[sqlx(json)]
-            pub sys_detail: Value,
+            pub sys_detail: serde_json::Value,
             #[from_context] pub created_by: i32,
             #[from_context] pub updated_by: i32,
-            #[gen_date] pub created_at: DateTime<Utc>,
-            pub updated_at: DateTime<Utc>,
+            #[gen_date] pub created_at: chrono::DateTime<chrono::Utc>,
+            pub updated_at: chrono::DateTime<chrono::Utc>,
         }
 
+        impl mae::repo::builder::BindArgs for #repo_ident {
+            fn bind(&self, mut args: &mut sqlx::postgres::PgArguments) {
+                todo!()
+            }
+        }
+        impl mae::repo::builder::ToSql for #repo_ident {
+            fn sql_insert(&self) -> String {
+                todo!()
+            }
+            fn sql_update(&self) -> String {
+                todo!()
+            }
+            fn sql_select(&self) -> String {
+                todo!()
+            }
+        }
+        impl std::fmt::Display for #repo_ident {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "{}", self)
+            }
+        }
+
+        impl mae::repo::builder::Builder<Context> for #repo_ident {
+            fn repo_name() -> String {
+                todo!()
+            }
+        }
     };
     repo.into()
 }
@@ -388,8 +415,7 @@ pub fn derive_mae_repo(item: TokenStream) -> TokenStream {
     let repo_struct = &ast.ident;
 
     quote! {
-        impl #repo_struct {
 
-        }
+
     }.into()
 }

@@ -1,21 +1,62 @@
-use sqlx::Arguments;
+use sqlx::Postgres;
 use sqlx::postgres::PgArguments;
+use sqlx::{Arguments, query::QueryAs};
 use std::fmt::{self, Display};
 
 use crate::request_context::ContextAccessor;
 
-pub struct MaeRepo<F: Display + ToSql> {
-    cmd_block: SqlCmd<F>,
-    whr_block: Vec<WhereCondition<F>>,
+pub trait Field:
+    Display + ToSql + BindArgs + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin
+{
 }
 
-pub enum SqlCmd<F: ToSql> {
+impl<F> Field for F where
+    F: Display + ToSql + BindArgs + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin
+{
+}
+
+pub struct MaeRepo<F: Field> {
+    cmd_block: SqlCmd<F>,
+    whr_block: Vec<WhereCondition<F>>,
+    repo_name: String,
+}
+
+impl<F: Field> MaeRepo<F> {
+    fn args(&self) -> PgArguments {
+        let mut args = PgArguments::default();
+        // NOTE: we need to bind the args before the where statement.
+        self.cmd_block.bind(&mut args);
+        for w in self.whr_block.iter() {
+            w.bind(&mut args);
+        }
+        args
+    }
+    async fn fetch_all<CA: ContextAccessor + Send + Unpin>(
+        &self,
+        ctx: CA,
+    ) -> anyhow::Result<Vec<F>> {
+        let sql = self.cmd_block.sql(&self.repo_name, &self.whr_block);
+        let req = sqlx::query_as_with::<'_, Postgres, F, PgArguments>(&sql, self.args());
+        return req
+            .fetch_all(ctx.db_pool())
+            .await
+            .map_err(|e| anyhow::anyhow!("Unable to fetch all: {}", e));
+    }
+}
+
+impl<F: Field> Display for MaeRepo<F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        todo!()
+    }
+}
+
+pub enum SqlCmd<F: Field> {
     Select(Vec<F>),
     Insert(Vec<F>),
     Update(Vec<F>),
 }
 
-impl<F: ToSql + Display> SqlCmd<F> {
+impl<F: Field> SqlCmd<F> {
     fn values(&self) -> String {
         match self {
             Self::Insert(v) => v
@@ -36,7 +77,7 @@ impl<F: ToSql + Display> SqlCmd<F> {
         }
     }
 
-    fn sql(&self, repo_name: String, whr_block: &Vec<WhereCondition<F>>) -> String {
+    fn sql(&self, repo_name: &String, whr_block: &Vec<WhereCondition<F>>) -> String {
         match self {
             SqlCmd::Select(_) => {
                 format!(
@@ -66,8 +107,8 @@ impl<F: ToSql + Display> SqlCmd<F> {
     }
 }
 
-impl<F: Display + ToSql + BindArgs> BindArgs for SqlCmd<F> {
-    fn bind(&self, mut args: &mut PgArguments) {
+impl<F: Field> BindArgs for SqlCmd<F> {
+    fn bind(&self, args: &mut PgArguments) {
         match self {
             Self::Select(v) => {
                 for ele in v {
@@ -88,13 +129,13 @@ impl<F: Display + ToSql + BindArgs> BindArgs for SqlCmd<F> {
     }
 }
 
-pub enum WhereCondition<F: Display> {
+pub enum WhereCondition<F: Field> {
     And(F, Where),
     Or(F, Where),
     Begin(F, Where),
 }
 
-impl<F: Display> Display for WhereCondition<F> {
+impl<F: Field> Display for WhereCondition<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WhereCondition::Begin(field, cond) => write!(f, "{} {}", field, cond),
@@ -104,7 +145,7 @@ impl<F: Display> Display for WhereCondition<F> {
     }
 }
 
-impl<F: Display> BindWhere for WhereCondition<F> {
+impl<F: Field> BindArgs for WhereCondition<F> {
     fn bind(&self, args: &mut PgArguments) {
         match self {
             Self::Begin(_, w) => w.bind(args),
@@ -114,7 +155,7 @@ impl<F: Display> BindWhere for WhereCondition<F> {
     }
 }
 
-fn sql_where<F: Display>(w: &Vec<WhereCondition<F>>) -> String {
+fn sql_where<F: Field>(w: &Vec<WhereCondition<F>>) -> String {
     w.iter()
         .map(|f| f.to_string())
         .collect::<Vec<_>>()
@@ -139,7 +180,7 @@ pub enum Where {
     IsNull,
 }
 
-impl Where {
+impl BindArgs for Where {
     fn bind(&self, args: &mut PgArguments) {
         let _ = match self {
             Self::Equals(v) => args.add(v),
@@ -187,56 +228,35 @@ pub trait BindArgs {
     fn bind(&self, args: &mut PgArguments);
 }
 
-trait BindWhere {
-    fn bind(&self, args: &mut PgArguments);
-}
-
 pub trait ToSql {
     fn sql_insert(&self) -> String;
     fn sql_update(&self) -> String;
     fn sql_select(&self) -> String;
 }
 
-pub trait Builder<
-    F: BindArgs + Display + ToSql,
-    R: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
-    C: ContextAccessor + Clone + Sync,
->
-{
-    fn build(sys_client: i32, cmd_block: SqlCmd<F>) -> MaeRepo<F> {
-        let whr_block = vec![WhereCondition::Begin(
-            Self::get_sys_client_field(),
-            Where::Equals(sys_client),
-        )];
-        MaeRepo::<F> {
+pub trait Builder<C: Clone>: Field + KeyAuths {
+    fn build(cmd_block: SqlCmd<Self>) -> MaeRepo<Self> {
+        MaeRepo::<Self> {
             cmd_block,
-            whr_block,
+            whr_block: Self::keys(),
+            repo_name: Self::repo_name(),
         }
     }
-    fn cmd_block(&self) -> SqlCmd<F>;
     fn repo_name() -> String;
-    fn whr_block(&self) -> Vec<WhereCondition<F>>;
-    fn args(&self) -> PgArguments {
-        let mut args = PgArguments::default();
-        // NOTE: we need to bind the args before the where statement.
-        self.cmd_block().bind(&mut args);
-        for w in self.whr_block().iter() {
-            w.bind(&mut args);
-        }
-        args
-    }
-    fn execute(
-        &self,
-        ctx: &C,
-    ) -> impl std::future::Future<Output = Result<Vec<R>, anyhow::Error>> + Send
-    where
-        Self: Sync,
-    {
-        async move {
-            let sql = &self.cmd_block().sql(Self::repo_name(), &self.whr_block());
-            let query = sqlx::query_as_with(sql, self.args());
-            Ok(query.fetch_all(ctx.db_pool()).await?)
-        }
-    }
-    fn get_sys_client_field() -> F;
 }
+
+pub trait KeyAuths: Field {
+    fn keys() -> Vec<WhereCondition<Self>>;
+}
+
+// pub trait Interface<C: Clone, F: Field>: Builder<C> + Field {
+//     fn insert_many(row: Vec<Self>) -> MaeRepo<Self> {
+//         Self::build(SqlCmd::Insert(row))
+//     }
+//     fn select(cols: Vec<F>) -> MaeRepo<Self> {
+//         Self::build(SqlCmd::Update(cols))
+//     }
+//     fn update_many(cols: Vec<F>) -> MaeRepo<Self> {
+//         Self::build(SqlCmd::Update(cols))
+//     }
+// }
