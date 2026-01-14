@@ -1,3 +1,5 @@
+#![feature(inherent_associated_types)]
+#![allow(incomplete_features)]
 extern crate proc_macro;
 use proc_macro::Ident;
 use proc_macro::TokenStream;
@@ -359,7 +361,6 @@ pub fn mae_repo(args: TokenStream, input: TokenStream) -> TokenStream {
     // rebuild repo struct with the existing fields and default fields for the repo
     // NOTE: here, we are deriving the Repo with the proc_macro_derive fn from above
     let repo = quote! {
-
         #[derive(mae::repo::MaeRepo, sqlx::FromRow, serde::Serialize, serde::Deserialize, Clone, Debug)]
         pub struct #repo_ident {
             #[id] pub id: i32,
@@ -377,7 +378,8 @@ pub fn mae_repo(args: TokenStream, input: TokenStream) -> TokenStream {
             pub updated_at: chrono::DateTime<chrono::Utc>,
         }
 
-        impl mae::repo::builder::Interface<Context, _Row, Field> for #repo_ident {}
+        impl mae::repo::builder::Interface<Context, _Row, Field> for #repo_ident {
+        }
 
         impl mae::repo::builder::Build<Context, _Row, Field> for #repo_ident {
             fn table_ident() -> String {
@@ -428,7 +430,7 @@ pub fn derive_mae_repo(item: TokenStream) -> TokenStream {
         impl mae::repo::builder::BindArgs for _Row {
             fn bind(&self, mut args: &mut sqlx::postgres::PgArguments) {
                 let _ = match &self {
-                    _Row::ForInsert(opts) | _Row::Options(opts) => {
+                    _Row::ForInsert(opts) | _Row::ForUpdate(opts) | _Row::Options(opts) => {
                         opts.bind(args);
                     },
                     _Row::ForSelect(var) | _Row::Variant(var) => {
@@ -436,6 +438,18 @@ pub fn derive_mae_repo(item: TokenStream) -> TokenStream {
                     }
                     _ => panic!("BIND NOT IMPLEMENTED")
                 };
+            }
+            fn bind_len(&self) -> usize {
+                match &self {
+                    _Row::ForInsert(opts) | _Row::ForUpdate(opts) | _Row::Options(opts) => {
+                        opts.bind_len()
+                    },
+                    _Row::ForSelect(var) | _Row::Variant(var) => {
+                        // NOTE: Variants have no bindings
+                        0
+                    }
+                    _ => panic!("BIND NOT IMPLEMENTED")
+                }
             }
         }
         impl mae::repo::builder::ToSql for _Row {
@@ -449,7 +463,25 @@ pub fn derive_mae_repo(item: TokenStream) -> TokenStream {
             }
             }
             fn sql_update(&self) -> String {
-                todo!()
+                match &self {
+                    _Row::ForUpdate(opts) | _Row::Options(opts) => {
+                        let (fields_str, values_str) = opts.sql();
+                        // TODO: This has to look something like this for an update many:
+                        //UPDATE users u
+                        // SET
+                        //     name = v.name,
+                        //     age  = v.age
+                        // FROM (
+                        //     VALUES
+                        //         (1, 'Alice', 30),
+                        //         (2, 'Bob',   25),
+                        //         (3, 'Carol', 40)
+                        // ) AS v(id, name, age)
+                        // WHERE u.id = v.id;
+                        return format!("({fields_str}) = (VALUES ({values_str}))");
+                    },
+                    _ => panic!("SQL_UPDATE NOT IMPLEMENTED")
+                }
             }
             fn sql_select(&self) -> String {
                 match &self {
@@ -577,6 +609,14 @@ fn as_option(ast: &DeriveInput) -> (Body, BodyIdent) {
             }
         }
     });
+    let bind_len = fields.iter().map(|f| {
+        let name = &f.ident;
+        quote! {
+            if let Some(v) = &self.#name {
+                count += 1;
+            }
+        }
+    });
     let body = quote! {
         struct #body_ident {
             #(#typed,)*
@@ -596,6 +636,11 @@ fn as_option(ast: &DeriveInput) -> (Body, BodyIdent) {
         impl mae::repo::builder::BindArgs for #body_ident {
             fn bind(&self, mut args: &mut sqlx::postgres::PgArguments) {
                 #(#bind_some)*
+            }
+            fn bind_len(&self) -> usize {
+                let mut count = 0;
+                #(#bind_len)*
+                count
             }
         }
     };

@@ -17,7 +17,7 @@ impl<F> QueryAs for F where F: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> 
 
 pub struct Builder<A: QueryAs, T: ToRow, F: Filter> {
     statement: SqlStatement<T, F>,
-    filters: Vec<WhereCondition<F>>,
+    filters: Vec<FilterOp<F>>,
     table_ident: String,
     from_row: PhantomData<fn() -> A>,
 }
@@ -41,12 +41,12 @@ impl<A: QueryAs, T: ToRow, F: Filter> Builder<A, T, F> {
                     sql_where(&self.filters, 0),
                 )
             }
-            SqlStatement::Insert(f) => {
+            SqlStatement::InsertOne(f) => {
                 format!(
                     "INSERT INTO {} {}{} RETURNING *;",
                     self.table_ident,
                     self.statement.fields(),
-                    sql_where(&self.filters, f.len()),
+                    sql_where(&self.filters, self.statement.bind_len()),
                 )
             }
             SqlStatement::Update(f) => {
@@ -54,7 +54,7 @@ impl<A: QueryAs, T: ToRow, F: Filter> Builder<A, T, F> {
                     "UPDATE {} SET {}{} RETURNING *;",
                     self.table_ident,
                     self.statement.fields(),
-                    sql_where(&self.filters, f.len()),
+                    sql_where(&self.filters, self.statement.bind_len()),
                 )
             }
         }
@@ -70,8 +70,19 @@ impl<A: QueryAs, T: ToRow, F: Filter> Builder<A, T, F> {
     }
     pub async fn fetch_all<CA: ContextAccessor + Send + Unpin>(
         &self,
-        ctx: CA,
+        ctx: &CA,
     ) -> anyhow::Result<Vec<A>> {
+        match &self.statement {
+            SqlStatement::Update(_) => {
+                if *&self.filters.len() < 1 {
+                    return Err(anyhow::anyhow!("Unable to Update without filters"));
+                }
+                if self.statement.bind_len() < 1 {
+                    return Err(anyhow::anyhow!("Unable to Update with empty fields"));
+                }
+            }
+            _ => {}
+        }
         let sql = self.to_sql();
         let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments>(
             &sql,
@@ -83,7 +94,7 @@ impl<A: QueryAs, T: ToRow, F: Filter> Builder<A, T, F> {
             .map_err(|e| anyhow::anyhow!("Unable to fetch all: {}", e));
     }
 
-    pub fn filter(mut self, mut values: Vec<WhereCondition<F>>) -> Self {
+    pub fn filter(mut self, mut values: Vec<FilterOp<F>>) -> Self {
         self.filters.append(&mut values);
         self
     }
@@ -95,10 +106,10 @@ impl<A: QueryAs, T: ToRow, F: Filter> Display for Builder<A, T, F> {
     }
 }
 
-pub enum SqlStatement<T: ToRow, F: Filter> {
+enum SqlStatement<T: ToRow, F: Filter> {
     Select(Vec<F>),
-    Insert(Vec<T>),
-    Update(Vec<T>),
+    InsertOne(T),
+    Update(T),
 }
 
 impl<T: ToRow, F: Filter> SqlStatement<T, F> {
@@ -106,16 +117,8 @@ impl<T: ToRow, F: Filter> SqlStatement<T, F> {
         // NOTE: we don't need to convert and map the bindings for a select statement. to_string
         // will do.
         match self {
-            Self::Insert(v) => v
-                .iter()
-                .map(|f| f.sql_insert())
-                .collect::<Vec<_>>()
-                .join(" "),
-            Self::Update(v) => v
-                .iter()
-                .map(|f| f.sql_update())
-                .collect::<Vec<_>>()
-                .join(" "),
+            Self::InsertOne(v) => v.sql_insert(),
+            Self::Update(v) => v.sql_update(),
             Self::Select(v) => v
                 .iter()
                 .map(|f| f.to_string())
@@ -133,37 +136,36 @@ impl<T: ToRow, F: Filter> BindArgs for SqlStatement<T, F> {
                     let _ = args.add(ele.to_string());
                 }
             }
-            Self::Insert(v) => {
-                for ele in v {
-                    ele.bind(args);
-                }
-            }
-            Self::Update(v) => {
-                for ele in v {
-                    ele.bind(args);
-                }
-            }
+            Self::InsertOne(v) => v.bind(args),
+            Self::Update(v) => v.bind(args),
+        }
+    }
+    fn bind_len(&self) -> usize {
+        match self {
+            Self::Update(v) | Self::InsertOne(v) => v.bind_len(),
+            // NOTE: There are no bindings for select statements
+            Self::Select(_) => 0,
         }
     }
 }
 
-pub enum WhereCondition<F: Filter> {
+pub enum FilterOp<F: Filter> {
     And(F, Where),
     Or(F, Where),
     Begin(F, Where),
 }
 
-impl<F: Filter> Display for WhereCondition<F> {
+impl<F: Filter> Display for FilterOp<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            WhereCondition::Begin(field, cond) => write!(f, "{} {}", field, cond),
-            WhereCondition::And(field, cond) => write!(f, "AND {} {}", field, cond),
-            WhereCondition::Or(field, cond) => write!(f, "OR {} {}", field, cond),
+            FilterOp::Begin(field, cond) => write!(f, "{} {}", field, cond),
+            FilterOp::And(field, cond) => write!(f, "AND {} {}", field, cond),
+            FilterOp::Or(field, cond) => write!(f, "OR {} {}", field, cond),
         }
     }
 }
 
-impl<F: Filter> BindArgs for WhereCondition<F> {
+impl<F: Filter> BindArgs for FilterOp<F> {
     fn bind(&self, args: &mut sqlx::postgres::PgArguments) {
         match self {
             Self::Begin(_, w) => w.bind(args),
@@ -171,9 +173,16 @@ impl<F: Filter> BindArgs for WhereCondition<F> {
             Self::Or(_, w) => w.bind(args),
         }
     }
+    fn bind_len(&self) -> usize {
+        match self {
+            Self::Begin(_, w) => w.bind_len(),
+            Self::And(_, w) => w.bind_len(),
+            Self::Or(_, w) => w.bind_len(),
+        }
+    }
 }
 
-fn sql_where<F: Filter>(w: &Vec<WhereCondition<F>>, idx: usize) -> String {
+fn sql_where<F: Filter>(w: &Vec<FilterOp<F>>, idx: usize) -> String {
     let whr = w
         .iter()
         .zip(1..)
@@ -224,6 +233,9 @@ impl BindArgs for Where {
             Self::IsNull => Ok(()),
         };
     }
+    fn bind_len(&self) -> usize {
+        1
+    }
 }
 
 impl Display for Where {
@@ -250,6 +262,7 @@ impl Display for Where {
 
 pub trait BindArgs {
     fn bind(&self, args: &mut sqlx::postgres::PgArguments);
+    fn bind_len(&self) -> usize;
 }
 
 pub trait ToSql {
@@ -271,15 +284,18 @@ pub trait Build<C: Clone, T: ToRow, F: Filter>: QueryAs + KeyAuths<F> {
 }
 
 pub trait KeyAuths<F: Filter>: QueryAs {
-    fn keys() -> Vec<WhereCondition<F>>;
+    fn keys() -> Vec<FilterOp<F>>;
 }
 
 pub trait Interface<C: Clone, T: ToRow, F: Filter>: QueryAs + Build<C, T, F> {
-    fn insert_many(recs: Vec<T>) -> Builder<Self, T, F> {
-        Self::build(SqlStatement::<T, F>::Insert(recs))
+    fn insert_one(rec: T) -> Builder<Self, T, F> {
+        Self::build(SqlStatement::<T, F>::InsertOne(rec))
     }
 
     fn select(recs: Vec<F>) -> Builder<Self, T, F> {
         Self::build(SqlStatement::<T, F>::Select(recs))
+    }
+    fn update_many(rec: T) -> Builder<Self, T, F> {
+        Self::build(SqlStatement::Update(rec))
     }
 }

@@ -1,7 +1,7 @@
 use crate::build::get_context;
 pub use chrono::Utc;
 use mae::repo;
-use mae::repo::builder::{Filter, Interface, Where, WhereCondition};
+use mae::repo::builder::{Filter, FilterOp, Interface, Where};
 use mae::request_context as mae_context;
 pub use serde_json::Map;
 use sqlx::Arguments;
@@ -20,9 +20,9 @@ pub struct RepoExample {
 }
 
 impl<F: mae::repo::builder::Filter> mae::repo::builder::KeyAuths<F> for RepoExample {
-    fn keys() -> Vec<repo::builder::WhereCondition<F>> {
+    fn keys() -> Vec<repo::builder::FilterOp<F>> {
         // TODO: This needs to actually add the rows.
-        Vec::<repo::builder::WhereCondition<F>>::new()
+        Vec::<repo::builder::FilterOp<F>>::new()
     }
 }
 
@@ -68,10 +68,10 @@ async fn should_create_record() {
     });
     // let data = RepoExample {
     // };
-    let builder = RepoExample::insert_many(vec![data]);
-    println!("{}", builder);
-    let rec = builder.fetch_all(ctx).await;
-    println!("{:?}", rec);
+    let builder = RepoExample::insert_one(data);
+    // println!("{}", builder);
+    let rec = builder.fetch_all(&ctx).await;
+    // println!("{:?}", rec);
     assert!(rec.is_ok());
 
     assert_eq!(rec.unwrap()[0].string_value, "hello_world");
@@ -86,13 +86,13 @@ async fn should_get_empty_records() {
     let mut builder = RepoExample::select(vec![Field::value, Field::string_value]);
 
     builder = builder.filter(vec![
-        WhereCondition::Begin(Field::comment, Where::Ilike("%bye-bye%".to_string())),
-        WhereCondition::Or(Field::string_value, Where::Ilike("hello".to_string())),
+        FilterOp::Begin(Field::comment, Where::Ilike("%bye-bye%".to_string())),
+        FilterOp::Or(Field::string_value, Where::Ilike("hello".to_string())),
     ]);
 
-    println!("{}", builder);
-    let res = builder.fetch_all(ctx).await;
-    println!("{:?}", res);
+    // println!("{}", builder);
+    let res = builder.fetch_all(&ctx).await;
+    // println!("{:?}", res);
     assert!(res.is_ok());
 
     assert!(res.unwrap().is_empty());
@@ -104,33 +104,132 @@ async fn should_get_records() {
         .await
         .unwrap();
 
-    let builder = RepoExample::select(vec![]).filter(vec![WhereCondition::Begin(
+    //TODO: this should be refactored to a helper function to test on.
+    let data = _Row::Options(_OptionRow {
+        sys_client: Some(1),
+        status: Some(repo::fields::DomainStatus::Active),
+        value: Some(1),
+        string_value: Some(String::from("hello_world")),
+        comment: Some(None),
+        tags: Some(SqlxJson::Array(vec![])),
+        sys_detail: Some(SqlxJson::Object(Map::new())),
+        id: None,
+        // TODO: _by should be created dynamically with ctx, _at created dynamically with now()
+        created_by: Some(1),
+        updated_by: Some(1),
+        updated_at: Some(Utc::now()),
+        created_at: Some(Utc::now()),
+    });
+    // let data = RepoExample {
+    // };
+    let builder = RepoExample::insert_one(data);
+    // println!("{}", builder);
+    let rec = builder.fetch_all(&ctx).await;
+    // println!("{:?}", rec);
+    assert!(rec.is_ok());
+
+    assert_eq!(rec.unwrap()[0].string_value, "hello_world");
+
+    let builder = RepoExample::select(vec![]).filter(vec![FilterOp::Begin(
         Field::string_value,
         Where::Ilike("%hello%".to_string()),
     )]);
 
-    println!("{}", builder);
+    // println!("{}", builder);
 
-    let res = builder.fetch_all(ctx).await;
-    println!("{:?}", res);
+    let res = builder.fetch_all(&ctx).await;
+    // println!("{:?}", res);
     assert!(res.is_ok());
     assert_eq!(res.unwrap().is_empty(), false);
 }
 
-// #[tokio::test]
-// async fn should_update_records() {
-//     let ctx = get_context::<CustomContext>(CustomContext {})
-//         .await
-//         .unwrap();
-//
-//     let builder = RepoExample::update_builder(vec![RepoExampleUpdateFields::value(11)], 1)
-//         .unwrap()
-//         .and_where(RepoExampleFields::value, Where::Equals(1));
-//
-//     println!("{}", builder.build_string());
-//
-//     let res = builder.execute(&ctx).await;
-//     println!("{:?}", res);
-//     //
-//     assert!(res.is_ok());
-// }
+#[tokio::test]
+async fn should_error_on_update_without_filters() {
+    let ctx = get_context::<CustomContext>(CustomContext {})
+        .await
+        .unwrap();
+
+    let data = _Row::Options(_OptionRow {
+        sys_client: Some(1),
+        status: Some(repo::fields::DomainStatus::Deleted),
+        value: Some(1),
+        string_value: Some(String::from("updated_world")),
+        comment: Some(None),
+        tags: Some(SqlxJson::Array(vec![])),
+        sys_detail: Some(SqlxJson::Object(Map::new())),
+        id: None,
+        // TODO: _by should be created dynamically with ctx, _at created dynamically with now()
+        created_by: Some(1),
+        updated_by: Some(1),
+        updated_at: Some(Utc::now()),
+        created_at: Some(Utc::now()),
+    });
+    let builder = RepoExample::update_many(data);
+
+    let res = builder.fetch_all(&ctx).await;
+    //
+    assert!(res.is_err());
+}
+
+#[tokio::test]
+async fn should_error_update_with_empty_fields() {
+    let ctx = get_context::<CustomContext>(CustomContext {})
+        .await
+        .unwrap();
+
+    let data = _Row::Options(_OptionRow {
+        sys_client: None,
+        value: None,
+        status: None,
+        string_value: None,
+        comment: None,
+        tags: None,
+        sys_detail: None,
+        id: None,
+        // TODO: _by should be created dynamically with ctx, _at created dynamically with now()
+        created_by: None,
+        updated_by: None,
+        updated_at: None,
+        created_at: None,
+    });
+    let mut builder = RepoExample::update_many(data);
+    builder = builder.filter(vec![FilterOp::Begin(
+        Field::string_value,
+        Where::Like("hello_world".into()),
+    )]);
+
+    let res = builder.fetch_all(&ctx).await;
+    //
+    assert!(res.is_err());
+}
+#[tokio::test]
+async fn should_update() {
+    let ctx = get_context::<CustomContext>(CustomContext {})
+        .await
+        .unwrap();
+
+    let data = _Row::Options(_OptionRow {
+        sys_client: Some(1),
+        value: Some(1),
+        status: None,
+        string_value: Some(String::from("updated_world")),
+        comment: Some(None),
+        tags: Some(SqlxJson::Array(vec![])),
+        sys_detail: Some(SqlxJson::Object(Map::new())),
+        id: None,
+        // TODO: _by should be created dynamically with ctx, _at created dynamically with now()
+        created_by: Some(1),
+        updated_by: Some(1),
+        updated_at: Some(Utc::now()),
+        created_at: Some(Utc::now()),
+    });
+    let mut builder = RepoExample::update_many(data);
+    builder = builder.filter(vec![FilterOp::Begin(
+        Field::string_value,
+        Where::Like("hello_world".into()),
+    )]);
+
+    let res = builder.fetch_all(&ctx).await;
+    //
+    assert!(res.is_ok());
+}
