@@ -4,27 +4,66 @@ use std::marker::PhantomData;
 
 use crate::request_context::ContextAccessor;
 
-pub trait FromRow: Display + ToSql + BindArgs {}
+pub trait ToRow: Display + ToSql + BindArgs {}
 
-impl<F> FromRow for F where F: Display + ToSql + BindArgs {}
+impl<T> ToRow for T where T: Display + ToSql + BindArgs {}
+
+pub trait Filter: Display {}
+impl<F> Filter for F where F: Display {}
 
 pub trait QueryAs: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Unpin + Send {}
 
 impl<F> QueryAs for F where F: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Unpin + Send {}
 
-pub struct MaeRepo<A: QueryAs, F: FromRow> {
-    cmd_block: SqlCmd<F>,
-    whr_block: Vec<WhereCondition<F>>,
-    repo_name: String,
+pub struct Builder<A: QueryAs, T: ToRow, F: Filter> {
+    statement: SqlStatement<T, F>,
+    filters: Vec<WhereCondition<F>>,
+    table_ident: String,
     from_row: PhantomData<fn() -> A>,
 }
 
-impl<A: QueryAs, F: FromRow> MaeRepo<A, F> {
+impl<A: QueryAs, T: ToRow, F: Filter> Builder<A, T, F> {
+    fn to_sql(&self) -> String {
+        match &self.statement {
+            SqlStatement::Select(_) => {
+                // NOTE: the sql_where fn has a fixed idx at 0; the prefix of the statement always
+                // takes no arguements.
+
+                // NOTE: if the values return an empty string, select everything.
+                let mut fields = self.statement.fields();
+                if fields.is_empty() {
+                    fields = "*".into();
+                }
+                format!(
+                    "SELECT {} FROM {}{};",
+                    fields,
+                    self.table_ident,
+                    sql_where(&self.filters, 0),
+                )
+            }
+            SqlStatement::Insert(f) => {
+                format!(
+                    "INSERT INTO {} {}{} RETURNING *;",
+                    self.table_ident,
+                    self.statement.fields(),
+                    sql_where(&self.filters, f.len()),
+                )
+            }
+            SqlStatement::Update(f) => {
+                format!(
+                    "UPDATE {} SET {}{} RETURNING *;",
+                    self.table_ident,
+                    self.statement.fields(),
+                    sql_where(&self.filters, f.len()),
+                )
+            }
+        }
+    }
     fn args(&self) -> sqlx::postgres::PgArguments {
         let mut args = sqlx::postgres::PgArguments::default();
         // NOTE: we need to bind the args before the where statement.
-        self.cmd_block.bind(&mut args);
-        for w in self.whr_block.iter() {
+        self.statement.bind(&mut args);
+        for w in self.filters.iter() {
             w.bind(&mut args);
         }
         args
@@ -33,7 +72,7 @@ impl<A: QueryAs, F: FromRow> MaeRepo<A, F> {
         &self,
         ctx: CA,
     ) -> anyhow::Result<Vec<A>> {
-        let sql = self.cmd_block.sql(&self.repo_name, &self.whr_block);
+        let sql = self.to_sql();
         let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments>(
             &sql,
             self.args(),
@@ -43,23 +82,29 @@ impl<A: QueryAs, F: FromRow> MaeRepo<A, F> {
             .await
             .map_err(|e| anyhow::anyhow!("Unable to fetch all: {}", e));
     }
-}
 
-impl<A: QueryAs, F: FromRow> Display for MaeRepo<A, F> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let sql = self.cmd_block.sql(&self.repo_name, &self.whr_block);
-        write!(f, "{}", sql)
+    pub fn filter(mut self, mut values: Vec<WhereCondition<F>>) -> Self {
+        self.filters.append(&mut values);
+        self
     }
 }
 
-pub enum SqlCmd<F: FromRow> {
-    Select(Vec<F>),
-    Insert(Vec<F>),
-    Update(Vec<F>),
+impl<A: QueryAs, T: ToRow, F: Filter> Display for Builder<A, T, F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_sql())
+    }
 }
 
-impl<F: FromRow> SqlCmd<F> {
-    fn values(&self) -> String {
+pub enum SqlStatement<T: ToRow, F: Filter> {
+    Select(Vec<F>),
+    Insert(Vec<T>),
+    Update(Vec<T>),
+}
+
+impl<T: ToRow, F: Filter> SqlStatement<T, F> {
+    fn fields(&self) -> String {
+        // NOTE: we don't need to convert and map the bindings for a select statement. to_string
+        // will do.
         match self {
             Self::Insert(v) => v
                 .iter()
@@ -73,43 +118,14 @@ impl<F: FromRow> SqlCmd<F> {
                 .join(" "),
             Self::Select(v) => v
                 .iter()
-                .map(|f| f.sql_select())
+                .map(|f| f.to_string())
                 .collect::<Vec<_>>()
-                .join(" "),
-        }
-    }
-
-    fn sql(&self, repo_name: &String, whr_block: &Vec<WhereCondition<F>>) -> String {
-        match self {
-            SqlCmd::Select(_) => {
-                format!(
-                    "SELECT {} FROM {}{};",
-                    self.values(),
-                    repo_name,
-                    sql_where(whr_block),
-                )
-            }
-            SqlCmd::Insert(_) => {
-                format!(
-                    "INSERT INTO {} {}{} RETURNING *;",
-                    repo_name,
-                    self.values(),
-                    sql_where(whr_block),
-                )
-            }
-            SqlCmd::Update(_) => {
-                format!(
-                    "UPDATE {} SET {} WHERE {} RETURNING *;",
-                    repo_name,
-                    self.values(),
-                    sql_where(whr_block),
-                )
-            }
+                .join(", "),
         }
     }
 }
 
-impl<F: FromRow> BindArgs for SqlCmd<F> {
+impl<T: ToRow, F: Filter> BindArgs for SqlStatement<T, F> {
     fn bind(&self, args: &mut sqlx::postgres::PgArguments) {
         match self {
             Self::Select(v) => {
@@ -131,23 +147,23 @@ impl<F: FromRow> BindArgs for SqlCmd<F> {
     }
 }
 
-pub enum WhereCondition<F: FromRow> {
+pub enum WhereCondition<F: Filter> {
     And(F, Where),
     Or(F, Where),
     Begin(F, Where),
 }
 
-impl<F: FromRow> Display for WhereCondition<F> {
+impl<F: Filter> Display for WhereCondition<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WhereCondition::Begin(field, cond) => write!(f, "{} {}", field, cond),
-            WhereCondition::And(field, cond) => write!(f, "{} AND {} {}", field, field, cond),
-            WhereCondition::Or(field, cond) => write!(f, "{} OR {} {}", field, field, cond),
+            WhereCondition::And(field, cond) => write!(f, "AND {} {}", field, cond),
+            WhereCondition::Or(field, cond) => write!(f, "OR {} {}", field, cond),
         }
     }
 }
 
-impl<F: FromRow> BindArgs for WhereCondition<F> {
+impl<F: Filter> BindArgs for WhereCondition<F> {
     fn bind(&self, args: &mut sqlx::postgres::PgArguments) {
         match self {
             Self::Begin(_, w) => w.bind(args),
@@ -157,10 +173,11 @@ impl<F: FromRow> BindArgs for WhereCondition<F> {
     }
 }
 
-fn sql_where<F: FromRow>(w: &Vec<WhereCondition<F>>) -> String {
+fn sql_where<F: Filter>(w: &Vec<WhereCondition<F>>, idx: usize) -> String {
     let whr = w
         .iter()
-        .map(|f| f.to_string())
+        .zip(1..)
+        .map(|(f, i)| format!("{} ${}", f.to_string(), i + idx))
         .collect::<Vec<_>>()
         .join(" ");
     if !whr.is_empty() {
@@ -241,28 +258,28 @@ pub trait ToSql {
     fn sql_select(&self) -> String;
 }
 
-pub trait Builder<C: Clone, F: FromRow>: QueryAs + KeyAuths<F> {
-    fn build(cmd_block: SqlCmd<F>) -> MaeRepo<Self, F> {
-        MaeRepo::<Self, F> {
-            cmd_block,
-            whr_block: Self::keys(),
-            repo_name: Self::repo_name(),
+pub trait Build<C: Clone, T: ToRow, F: Filter>: QueryAs + KeyAuths<F> {
+    fn build(statement: SqlStatement<T, F>) -> Builder<Self, T, F> {
+        Builder::<Self, T, F> {
+            statement,
+            filters: Self::keys(),
+            table_ident: Self::table_ident(),
             from_row: PhantomData,
         }
     }
-    fn repo_name() -> String;
+    fn table_ident() -> String;
 }
 
-pub trait KeyAuths<F: FromRow>: QueryAs {
+pub trait KeyAuths<F: Filter>: QueryAs {
     fn keys() -> Vec<WhereCondition<F>>;
 }
 
-pub trait Interface<C: Clone, F: FromRow>: QueryAs + Builder<C, F> {
-    fn insert_many(recs: Vec<F>) -> MaeRepo<Self, F> {
-        Self::build(SqlCmd::Insert(recs))
+pub trait Interface<C: Clone, T: ToRow, F: Filter>: QueryAs + Build<C, T, F> {
+    fn insert_many(recs: Vec<T>) -> Builder<Self, T, F> {
+        Self::build(SqlStatement::<T, F>::Insert(recs))
     }
 
-    fn select_many(recs: Vec<F>) -> MaeRepo<Self, F> {
-        Self::build(SqlCmd::Select(recs))
+    fn select(recs: Vec<F>) -> Builder<Self, T, F> {
+        Self::build(SqlStatement::<T, F>::Select(recs))
     }
 }

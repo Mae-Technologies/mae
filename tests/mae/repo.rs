@@ -1,7 +1,7 @@
 use crate::build::get_context;
 pub use chrono::Utc;
 use mae::repo;
-use mae::repo::builder::Interface;
+use mae::repo::builder::{Filter, Interface, Where, WhereCondition};
 use mae::request_context as mae_context;
 pub use serde_json::Map;
 use sqlx::Arguments;
@@ -19,7 +19,7 @@ pub struct RepoExample {
     pub string_value: String,
 }
 
-impl<F: mae::repo::builder::FromRow> mae::repo::builder::KeyAuths<F> for RepoExample {
+impl<F: mae::repo::builder::Filter> mae::repo::builder::KeyAuths<F> for RepoExample {
     fn keys() -> Vec<repo::builder::WhereCondition<F>> {
         // TODO: This needs to actually add the rows.
         Vec::<repo::builder::WhereCondition<F>>::new()
@@ -83,9 +83,11 @@ async fn should_get_empty_records() {
         .await
         .unwrap();
 
-    let builder = RepoExample::select_many(vec![
-        _Row::Variant(_VariantRow::value),
-        _Row::Variant(_VariantRow::string_value),
+    let mut builder = RepoExample::select(vec![Field::value, Field::string_value]);
+
+    builder = builder.filter(vec![
+        WhereCondition::Begin(Field::comment, Where::Ilike("%bye-bye%".to_string())),
+        WhereCondition::Or(Field::string_value, Where::Ilike("hello".to_string())),
     ]);
 
     println!("{}", builder);
@@ -96,25 +98,25 @@ async fn should_get_empty_records() {
     assert!(res.unwrap().is_empty());
 }
 
-// #[tokio::test]
-// async fn should_get_records() {
-//     let ctx = get_context::<CustomContext>(CustomContext {})
-//         .await
-//         .unwrap();
-//
-//     let builder = RepoExample::select_builder(1)
-//         .unwrap()
-//         .and_where(
-//             RepoExampleFields::string_value,
-//             Where::Ilike("%ELLO_WORL%".to_string()),
-//         )
-//         .and_where(RepoExampleFields::value, Where::Equals(1));
-//
-//     let res = builder.execute(&ctx).await;
-//     assert!(res.is_ok());
-//     assert_eq!(res.unwrap().is_empty(), false);
-// }
-//
+#[tokio::test]
+async fn should_get_records() {
+    let ctx = get_context::<CustomContext>(CustomContext {})
+        .await
+        .unwrap();
+
+    let builder = RepoExample::select(vec![]).filter(vec![WhereCondition::Begin(
+        Field::string_value,
+        Where::Ilike("%hello%".to_string()),
+    )]);
+
+    println!("{}", builder);
+
+    let res = builder.fetch_all(ctx).await;
+    println!("{:?}", res);
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap().is_empty(), false);
+}
+
 // #[tokio::test]
 // async fn should_update_records() {
 //     let ctx = get_context::<CustomContext>(CustomContext {})
