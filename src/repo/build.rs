@@ -148,7 +148,7 @@ pub trait RenameMetoToSqlRemoveOther<R: ToRow, F: ToField, P: ToPatch> {
                 // takes no arguements.
 
                 // NOTE: if the values return an empty string, select everything.
-                let mut fields = self.statement().fields();
+                let mut fields = self.statement().field_values();
                 if fields.is_empty() {
                     fields = "*".into();
                 }
@@ -163,7 +163,7 @@ pub trait RenameMetoToSqlRemoveOther<R: ToRow, F: ToField, P: ToPatch> {
                 format!(
                     "INSERT INTO {} {}{} RETURNING *;",
                     self.schema(),
-                    self.statement().fields(),
+                    self.statement().field_values(),
                     sql_where(&self.filters(), self.statement().bind_len()),
                 )
             }
@@ -172,7 +172,7 @@ pub trait RenameMetoToSqlRemoveOther<R: ToRow, F: ToField, P: ToPatch> {
                 format!(
                     "INSERT INTO {} {}{} RETURNING *;",
                     self.schema(),
-                    self.statement().fields(),
+                    self.statement().field_values(),
                     where_str
                 )
             }
@@ -180,7 +180,7 @@ pub trait RenameMetoToSqlRemoveOther<R: ToRow, F: ToField, P: ToPatch> {
                 format!(
                     "UPDATE {} SET {}{} RETURNING *;",
                     self.schema(),
-                    self.statement().fields(),
+                    self.statement().field_values(),
                     sql_where(&self.filters(), self.statement().bind_len()),
                 )
             }
@@ -188,7 +188,7 @@ pub trait RenameMetoToSqlRemoveOther<R: ToRow, F: ToField, P: ToPatch> {
                 format!(
                     "UPDATE {} SET {}{} RETURNING *;",
                     self.schema(),
-                    self.statement().fields(),
+                    self.statement().field_values(),
                     sql_where(&self.filters(), self.statement().bind_len())
                 )
             }

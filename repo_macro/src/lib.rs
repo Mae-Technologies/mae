@@ -129,15 +129,6 @@ fn as_typed(ast: &DeriveInput) -> (Body, BodyIdent) {
         }
 
         impl mae::repo::__private__::ToSql for #body_ident {
-            fn sql_insert(&self) -> String {
-                panic!("SQL_UPDATE NOT IMPLEMENTED")
-            }
-            fn sql_update(&self) -> String {
-                panic!("SQL_UPDATE NOT IMPLEMENTED")
-            }
-            fn sql_select(&self) -> String {
-                panic!("SQL_SELECT NOT IMPLEMENTED")
-            }
             fn sql_patch(&self) -> String {
                 // TODO: This has to look something like this for an update many:
                 //UPDATE users u
@@ -194,11 +185,9 @@ fn as_variant(ast: &DeriveInput) -> (Body, BodyIdent) {
             #(#variant,)*
         }
 
-        impl #body_ident {
-            fn sql(&self) -> String {
-                match self {
-                    #(#to_string,)*
-                }
+        impl mae::repo::__private__::ToSql for #body_ident {
+            fn sql_select(&self) -> String {
+                self.to_string()
             }
         }
 
@@ -294,12 +283,6 @@ fn as_option(ast: &DeriveInput) -> (Body, BodyIdent) {
                         // ) AS v(id, name, age)
                         // WHERE u.id = v.id;
                         return format!("({fields_str}) = (VALUES ({values_str}))");
-            }
-            fn sql_select(&self) -> String {
-                panic!("SQL_SELECT NOT IMPLEMENTED")
-            }
-            fn sql_patch(&self) -> String {
-                panic!("SQL_PATCH NOT IMPLEMENTED")
             }
         }
 

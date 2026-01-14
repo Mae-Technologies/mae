@@ -18,13 +18,37 @@ pub trait BindArgs {
 
 //  - ToSql
 //      If there are column representations inside the types, they need to be extracted.
-//      This is done with the Dispay inpl
+//      This is done with the Dispay impl
 pub trait ToSql {
-    fn sql_insert(&self) -> String;
-    fn sql_update(&self) -> String;
-    fn sql_patch(&self) -> String;
-    fn sql_select(&self) -> String;
+    fn sql_insert(&self) -> String {
+        unimplemented!()
+    }
+    fn sql_update(&self) -> String {
+        unimplemented!()
+    }
+    fn sql_patch(&self) -> String {
+        unimplemented!()
+    }
+    fn sql_select(&self) -> String {
+        unimplemented!()
+    }
+    // function cohesion accross types: SqlStatement will impl the ToSql trait, using a phantom trait
+    // to tie it to the method below. This will drill down to the types to gather the sql parts.
+    // the same thing was done for BingArgs, but no associated types required
+    fn field_values(&self) -> String
+    where
+        Self: DrillDown,
+    {
+        // TODO: mrigrate all calls to this and remove the above functions, remove this body so
+        // there is no default body
+        unimplemented!()
+    }
 }
+
+// defining the phantom trait
+trait DrillDown {}
+
+impl<R: ToRow, F: ToField, P: ToPatch> DrillDown for SqlStatement<R, F, P> {}
 
 // SQL Statements
 pub enum SqlStatement<R: ToRow, F: ToField, P: ToPatch> {
@@ -35,10 +59,8 @@ pub enum SqlStatement<R: ToRow, F: ToField, P: ToPatch> {
     Patch(Vec<P>),
 }
 
-// TODO: This should follow the ToSql impl
-impl<R: ToRow, F: ToField, P: ToPatch> SqlStatement<R, F, P> {
-    // get the statement parts
-    pub fn fields(&self) -> String {
+impl<R: ToRow, F: ToField, P: ToPatch> ToSql for SqlStatement<R, F, P> {
+    fn field_values(&self) -> String {
         // TODO: this isn't very intuitive, (1) fields is not very descriptive, (2) returning a
         // string is not helpful. When building the sql string, we will need more details so the
         // method is more helpful (IE, current update impl only works for one row, and same with
