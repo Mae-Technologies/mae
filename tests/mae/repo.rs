@@ -1,7 +1,7 @@
 use crate::build::get_context;
 pub use chrono::Utc;
 use mae::repo;
-use mae::repo::builder::{Filter, FilterOp, Interface, Where};
+use mae::repo::builder::{Execute, FilterOp, Interface, Where};
 use mae::request_context as mae_context;
 pub use serde_json::Map;
 use sqlx::Arguments;
@@ -11,7 +11,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 struct CustomContext;
 
-type Context = Arc<mae_context::RequestContext<CustomContext>>;
+type Context = mae_context::RequestContext<CustomContext>;
 
 #[repo::mae_repo("repoexample")]
 pub struct RepoExample {
@@ -19,7 +19,7 @@ pub struct RepoExample {
     pub string_value: String,
 }
 
-impl<F: mae::repo::builder::Filter> mae::repo::builder::KeyAuths<F> for RepoExample {
+impl<F: mae::repo::builder::Field> mae::repo::builder::KeyAuths<F> for RepoExample {
     fn keys() -> Vec<repo::builder::FilterOp<F>> {
         // TODO: This needs to actually add the rows.
         Vec::<repo::builder::FilterOp<F>>::new()
@@ -51,7 +51,7 @@ async fn should_create_record() {
         .await
         .unwrap();
 
-    let data = _Row::Options(_OptionRow {
+    let data = Row {
         sys_client: Some(1),
         status: Some(repo::fields::DomainStatus::Active),
         value: Some(1),
@@ -65,7 +65,7 @@ async fn should_create_record() {
         updated_by: Some(1),
         updated_at: Some(Utc::now()),
         created_at: Some(Utc::now()),
-    });
+    };
     // let data = RepoExample {
     // };
     let builder = RepoExample::insert_one(data);
@@ -105,7 +105,7 @@ async fn should_get_records() {
         .unwrap();
 
     //TODO: this should be refactored to a helper function to test on.
-    let data = _Row::Options(_OptionRow {
+    let data = Row {
         sys_client: Some(1),
         status: Some(repo::fields::DomainStatus::Active),
         value: Some(1),
@@ -119,7 +119,7 @@ async fn should_get_records() {
         updated_by: Some(1),
         updated_at: Some(Utc::now()),
         created_at: Some(Utc::now()),
-    });
+    };
     // let data = RepoExample {
     // };
     let builder = RepoExample::insert_one(data);
@@ -149,7 +149,7 @@ async fn should_error_on_update_without_filters() {
         .await
         .unwrap();
 
-    let data = _Row::Options(_OptionRow {
+    let data = Row {
         sys_client: Some(1),
         status: Some(repo::fields::DomainStatus::Deleted),
         value: Some(1),
@@ -163,7 +163,7 @@ async fn should_error_on_update_without_filters() {
         updated_by: Some(1),
         updated_at: Some(Utc::now()),
         created_at: Some(Utc::now()),
-    });
+    };
     let builder = RepoExample::update_many(data);
 
     let res = builder.fetch_all(&ctx).await;
@@ -177,7 +177,7 @@ async fn should_error_update_with_empty_fields() {
         .await
         .unwrap();
 
-    let data = _Row::Options(_OptionRow {
+    let data = Row {
         sys_client: None,
         value: None,
         status: None,
@@ -191,7 +191,7 @@ async fn should_error_update_with_empty_fields() {
         updated_by: None,
         updated_at: None,
         created_at: None,
-    });
+    };
     let mut builder = RepoExample::update_many(data);
     builder = builder.filter(vec![FilterOp::Begin(
         Field::string_value,
@@ -208,7 +208,7 @@ async fn should_update() {
         .await
         .unwrap();
 
-    let data = _Row::Options(_OptionRow {
+    let data = Row {
         sys_client: Some(1),
         value: Some(1),
         status: None,
@@ -222,7 +222,7 @@ async fn should_update() {
         updated_by: Some(1),
         updated_at: Some(Utc::now()),
         created_at: Some(Utc::now()),
-    });
+    };
     let mut builder = RepoExample::update_many(data);
     builder = builder.filter(vec![FilterOp::Begin(
         Field::string_value,
