@@ -11,7 +11,7 @@ use syn::parse_macro_input;
 use syn::{Data, DataStruct, DeriveInput, Field, Fields, LitStr};
 
 #[proc_macro_attribute]
-pub fn mae_repo(args: TokenStream, input: TokenStream) -> TokenStream {
+pub fn schema(args: TokenStream, input: TokenStream) -> TokenStream {
     let repo_name = parse_macro_input!(args as LitStr).value();
     let ast = parse_macro_input!(input as DeriveInput);
 
@@ -36,11 +36,11 @@ pub fn mae_repo(args: TokenStream, input: TokenStream) -> TokenStream {
     // rebuild repo struct with the existing fields and default fields for the repo
     // NOTE: here, we are deriving the Repo with the proc_macro_derive fn from above
     let repo = quote! {
-        #[derive(mae::repo::MaeRepo, sqlx::FromRow, serde::Serialize, serde::Deserialize, Clone, Debug)]
+        #[derive(mae_repo_macro::MaeRepo, sqlx::FromRow, serde::Serialize, serde::Deserialize, Clone)]
         pub struct #repo_ident {
             #[id] pub id: i32,
             pub sys_client: i32,
-            pub status: mae::repo::fields::DomainStatus,
+            pub status: mae::repo::default::DomainStatus,
             #(#params,)*
             pub comment: Option<String>,
             #[sqlx(json)]
@@ -53,7 +53,7 @@ pub fn mae_repo(args: TokenStream, input: TokenStream) -> TokenStream {
             pub updated_at: chrono::DateTime<chrono::Utc>,
         }
 
-        impl mae::repo::builder::Build<Context, Row, Field> for #repo_ident {
+        impl mae::repo::__private__::Build<Context, Row, Field> for #repo_ident {
             fn table_ident() -> String {
                 #repo_name.to_string()
             }
@@ -85,7 +85,7 @@ pub fn derive_mae_repo(item: TokenStream) -> TokenStream {
         #repo_variant
         #repo_typed
 
-        impl mae::repo::builder::ToSql for Row {
+        impl mae::repo::__private__::ToSql for Row {
             fn sql_insert(&self) -> String {
                 let (fields_str, values_str) = self.sql();
                 return format!("({}) VALUES ({})", fields_str, values_str);
@@ -256,7 +256,7 @@ fn as_option(ast: &DeriveInput) -> (Body, BodyIdent) {
             }
         }
 
-        impl mae::repo::builder::BindArgs for #body_ident {
+        impl mae::repo::__private__::BindArgs for #body_ident {
             fn bind(&self, mut args: &mut sqlx::postgres::PgArguments) {
                 #(#bind_some)*
             }

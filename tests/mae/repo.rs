@@ -1,7 +1,9 @@
 use crate::build::get_context;
 pub use chrono::Utc;
-use mae::repo;
-use mae::repo::builder::{Execute, FilterOp, Interface, Where};
+use mae::repo::default::DomainStatus;
+use mae::repo::filter::{Filter, FilterOp};
+use mae::repo::implement::{Execute, Interface, KeyAuths, ToField};
+use mae::repo::repo_macro::schema;
 use mae::request_context as mae_context;
 pub use serde_json::Map;
 use sqlx::Arguments;
@@ -13,16 +15,16 @@ struct CustomContext;
 
 type Context = mae_context::RequestContext<CustomContext>;
 
-#[repo::mae_repo("repoexample")]
+#[schema("repoexample")]
 pub struct RepoExample {
     pub value: i32,
     pub string_value: String,
 }
 
-impl<F: mae::repo::builder::Field> mae::repo::builder::KeyAuths<F> for RepoExample {
-    fn keys() -> Vec<repo::builder::FilterOp<F>> {
+impl<F: ToField> KeyAuths<F> for RepoExample {
+    fn keys() -> Vec<FilterOp<F>> {
         // TODO: This needs to actually add the rows.
-        Vec::<repo::builder::FilterOp<F>>::new()
+        Vec::<FilterOp<F>>::new()
     }
 }
 
@@ -34,7 +36,7 @@ fn should_make_domain_struct() {
         comment: None,
         id: 1,
         sys_client: 1,
-        status: repo::fields::DomainStatus::Active,
+        status: DomainStatus::Active,
         tags: SqlxJson::Array(vec![]),
         sys_detail: SqlxJson::Object(Map::new()),
         created_by: 1,
@@ -53,7 +55,7 @@ async fn should_create_record() {
 
     let data = Row {
         sys_client: Some(1),
-        status: Some(repo::fields::DomainStatus::Active),
+        status: Some(DomainStatus::Active),
         value: Some(1),
         string_value: Some(String::from("hello_world")),
         comment: Some(None),
@@ -86,8 +88,8 @@ async fn should_get_empty_records() {
     let mut builder = RepoExample::select(vec![Field::value, Field::string_value]);
 
     builder = builder.filter(vec![
-        FilterOp::Begin(Field::comment, Where::Ilike("%bye-bye%".to_string())),
-        FilterOp::Or(Field::string_value, Where::Ilike("hello".to_string())),
+        FilterOp::Begin(Field::comment, Filter::Ilike("%bye-bye%".to_string())),
+        FilterOp::Or(Field::string_value, Filter::Ilike("hello".to_string())),
     ]);
 
     // println!("{}", builder);
@@ -107,7 +109,7 @@ async fn should_get_records() {
     //TODO: this should be refactored to a helper function to test on.
     let data = Row {
         sys_client: Some(1),
-        status: Some(repo::fields::DomainStatus::Active),
+        status: Some(DomainStatus::Active),
         value: Some(1),
         string_value: Some(String::from("hello_world")),
         comment: Some(None),
@@ -132,7 +134,7 @@ async fn should_get_records() {
 
     let builder = RepoExample::select(vec![]).filter(vec![FilterOp::Begin(
         Field::string_value,
-        Where::Ilike("%hello%".to_string()),
+        Filter::Ilike("%hello%".to_string()),
     )]);
 
     // println!("{}", builder);
@@ -151,7 +153,7 @@ async fn should_error_on_update_without_filters() {
 
     let data = Row {
         sys_client: Some(1),
-        status: Some(repo::fields::DomainStatus::Deleted),
+        status: Some(DomainStatus::Deleted),
         value: Some(1),
         string_value: Some(String::from("updated_world")),
         comment: Some(None),
@@ -195,7 +197,7 @@ async fn should_error_update_with_empty_fields() {
     let mut builder = RepoExample::update_many(data);
     builder = builder.filter(vec![FilterOp::Begin(
         Field::string_value,
-        Where::Like("hello_world".into()),
+        Filter::Like("hello_world".into()),
     )]);
 
     let res = builder.fetch_all(&ctx).await;
@@ -226,7 +228,7 @@ async fn should_update() {
     let mut builder = RepoExample::update_many(data);
     builder = builder.filter(vec![FilterOp::Begin(
         Field::string_value,
-        Where::Like("hello_world".into()),
+        Filter::Like("hello_world".into()),
     )]);
 
     let res = builder.fetch_all(&ctx).await;

@@ -1,0 +1,213 @@
+use super::type_def::{ToField, ToRow};
+use crate::request_context::ContextAccessor;
+use sqlx::Arguments;
+use std::fmt::Display;
+// /////
+// INTERNAL: CONVERT THE BUILDER PARTS TO SQL
+// /////
+
+// There are two interfaces to all the SQL parts:
+
+//  - BindArgs
+//      If there are arguments, they need to be safely inserted into the SQL Query with PgArguments
+pub trait BindArgs {
+    // TODO: is any of these are to panic, this method should return a Result
+    fn bind(&self, args: &mut sqlx::postgres::PgArguments);
+    fn bind_len(&self) -> usize;
+}
+
+//  - ToSql
+//      If there are column representations inside the types, they need to be extracted.
+//      This is done with the Dispay inpl
+pub trait ToSql {
+    fn sql_insert(&self) -> String;
+    fn sql_update(&self) -> String;
+    fn sql_patch(&self) -> String;
+    fn sql_select(&self) -> String;
+}
+
+// SQL Statements
+pub enum SqlStatement<T: ToRow, F: ToField> {
+    Select(Vec<F>),
+    InsertOne(T),
+    InsertMany(Vec<T>),
+    Update(T),
+    // TODO: Patch<Vec<T>> should be a new type (typed variants)
+    Patch(Vec<T>),
+}
+
+// TODO: This should probably follow the ToSql impl
+impl<T: ToRow, F: ToField> SqlStatement<T, F> {
+    // get the statement parts
+    pub fn fields(&self) -> String {
+        // TODO: this isn't very intuitive, (1) fields is not very descriptive, (2) returning a
+        // string is not helpful. When building the sql string, we will need more details so the
+        // method is more helpful (IE, current update impl only works for one row, and same with
+        // insert) rename this function to sql() -> String, String
+        // NOTE: we don't need to convert and map the bindings for a select statement. to_string
+        // will do.
+        match self {
+            Self::InsertOne(v) => v.sql_insert(),
+            Self::InsertMany(v) => v
+                .iter()
+                .map(|f| f.sql_insert())
+                .collect::<Vec<_>>()
+                .join(", "),
+            Self::Update(v) => v.sql_update(),
+            Self::Patch(v) => v
+                .iter()
+                .map(|f| f.sql_patch())
+                .collect::<Vec<_>>()
+                .join(", "),
+            Self::Select(v) => v
+                .iter()
+                .map(|f| f.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+        }
+    }
+}
+
+impl<T: ToRow, F: ToField> BindArgs for SqlStatement<T, F> {
+    // Bind the Statement values to the query
+    // (Ie - Struct{value: 1} or Enum::value(1)) -> iter.v / v -> PgArguments.add(v)
+    fn bind(&self, args: &mut sqlx::postgres::PgArguments) {
+        match self {
+            Self::Select(v) => {
+                for ele in v {
+                    let _ = args.add(ele.to_string());
+                }
+            }
+            Self::InsertOne(v) => v.bind(args),
+            Self::InsertMany(v) => v.iter().for_each(|f| f.bind(args)),
+            Self::Update(v) => v.bind(args),
+            Self::Patch(v) => v.iter().for_each(|f| f.bind(args)),
+        }
+    }
+
+    // Get the count of arg's that are to be bound
+    fn bind_len(&self) -> usize {
+        match self {
+            Self::Update(v) | Self::InsertOne(v) => v.bind_len(),
+            // NOTE: There are no bindings for select statements
+            Self::Select(_) => 0,
+            Self::InsertMany(v) => v.iter().map(|v| v.bind_len()).sum(),
+            Self::Patch(v) => v.len(),
+        }
+    }
+}
+
+// Filter / Where block of the Query
+pub enum Filter {
+    Equals(i32),
+    NotEquals(i32),
+    In(Vec<i32>),
+    NotIn(Vec<i32>),
+    Like(String),
+    NotLike(String),
+    Ilike(String),
+    NotIlike(String),
+    StringIs(String),
+    StringIsNot(String),
+    Gt(i32),
+    Gte(i32),
+    Lt(i32),
+    Lte(i32),
+    IsNull,
+}
+
+impl BindArgs for Filter {
+    fn bind(&self, args: &mut sqlx::postgres::PgArguments) {
+        let _ = match self {
+            Self::Equals(v) => args.add(v),
+            Self::NotEquals(v) => args.add(v),
+            Self::In(v) => args.add(v),
+            Self::NotIn(v) => args.add(v),
+            Self::Like(v) => args.add(v),
+            Self::NotLike(v) => args.add(v),
+            Self::Ilike(v) => args.add(v),
+            Self::NotIlike(v) => args.add(v),
+            Self::StringIs(v) => args.add(v),
+            Self::StringIsNot(v) => args.add(v),
+            Self::Gt(v) => args.add(v),
+            Self::Gte(v) => args.add(v),
+            Self::Lt(v) => args.add(v),
+            Self::Lte(v) => args.add(v),
+            Self::IsNull => Ok(()),
+        };
+    }
+    fn bind_len(&self) -> usize {
+        1
+    }
+}
+
+impl Display for Filter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Filter::Equals(_) => write!(f, "="),
+            Filter::NotEquals(_) => write!(f, "!="),
+            Filter::In(_) => write!(f, "IN"),
+            Filter::NotIn(_) => write!(f, "NOT IN"),
+            Filter::Like(_) => write!(f, "LIKE"),
+            Filter::NotLike(_) => write!(f, "NOT LIKE"),
+            Filter::Ilike(_) => write!(f, "ILIKE"),
+            Filter::NotIlike(_) => write!(f, "NOT ILIKE"),
+            Filter::StringIs(_) => write!(f, "="),
+            Filter::StringIsNot(_) => write!(f, "!="),
+            Filter::Gt(_) => write!(f, ">"),
+            Filter::Gte(_) => write!(f, ">="),
+            Filter::Lt(_) => write!(f, "<"),
+            Filter::Lte(_) => write!(f, "<="),
+            Filter::IsNull => write!(f, "IS NULL"),
+        }
+    }
+}
+
+// Filter / Where Operators
+pub enum FilterOp<F: ToField> {
+    And(F, Filter),
+    Or(F, Filter),
+    Begin(F, Filter),
+}
+
+impl<F: ToField> Display for FilterOp<F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FilterOp::Begin(field, cond) => write!(f, "{} {}", field, cond),
+            FilterOp::And(field, cond) => write!(f, "AND {} {}", field, cond),
+            FilterOp::Or(field, cond) => write!(f, "OR {} {}", field, cond),
+        }
+    }
+}
+
+impl<F: ToField> BindArgs for FilterOp<F> {
+    fn bind(&self, args: &mut sqlx::postgres::PgArguments) {
+        match self {
+            Self::Begin(_, w) => w.bind(args),
+            Self::And(_, w) => w.bind(args),
+            Self::Or(_, w) => w.bind(args),
+        }
+    }
+    fn bind_len(&self) -> usize {
+        match self {
+            Self::Begin(_, w) => w.bind_len(),
+            Self::And(_, w) => w.bind_len(),
+            Self::Or(_, w) => w.bind_len(),
+        }
+    }
+}
+
+// Static method to extract the Where block of the Sql Query. They will always be the same / have
+// the same structure
+pub fn sql_where<F: ToField>(w: &Vec<FilterOp<F>>, idx: usize) -> String {
+    let whr = w
+        .iter()
+        .zip(1..)
+        .map(|(f, i)| format!("{} ${}", f.to_string(), i + idx))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if !whr.is_empty() {
+        return format!(" WHERE {}", whr);
+    }
+    whr
+}
