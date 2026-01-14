@@ -53,8 +53,8 @@ pub fn schema(args: TokenStream, input: TokenStream) -> TokenStream {
             pub updated_at: chrono::DateTime<chrono::Utc>,
         }
 
-        impl mae::repo::__private__::Build<Context, Row, Field> for #repo_ident {
-            fn table_ident() -> String {
+        impl mae::repo::__private__::Build<Context, Row, Field, PatchField> for #repo_ident {
+            fn schema() -> String {
                 #repo_name.to_string()
             }
         }
@@ -85,41 +85,6 @@ pub fn derive_mae_repo(item: TokenStream) -> TokenStream {
         #repo_variant
         #repo_typed
 
-        impl mae::repo::__private__::ToSql for Row {
-            fn sql_insert(&self) -> String {
-                let (fields_str, values_str) = self.sql();
-                return format!("({}) VALUES ({})", fields_str, values_str);
-            }
-            fn sql_update(&self) -> String {
-                        let (fields_str, values_str) = self.sql();
-                        // TODO: This has to look something like this for an update many:
-                        //UPDATE users u
-                        // SET
-                        //     name = v.name,
-                        //     age  = v.age
-                        // FROM (
-                        //     VALUES
-                        //         (1, 'Alice', 30),
-                        //         (2, 'Bob',   25),
-                        //         (3, 'Carol', 40)
-                        // ) AS v(id, name, age)
-                        // WHERE u.id = v.id;
-                        return format!("({fields_str}) = (VALUES ({values_str}))");
-            }
-            fn sql_select(&self) -> String {
-                panic!("SQL_SELECT NOT IMPLEMENTED")
-                // match &self {
-                //     _Row::ForSelect(var) | _Row::Variant(var) => {
-                //         let fields_str = var.sql();
-                //         return format!("{}", fields_str);
-                //     },
-                //     _ => panic!("SQL_SELECT NOT IMPLEMENTED")
-                // }
-            }
-            fn sql_patch(&self) -> String {
-                todo!()
-            }
-        }
     }
     .into()
 }
@@ -135,15 +100,71 @@ fn as_typed(ast: &DeriveInput) -> (Body, BodyIdent) {
         }) => &fields.named,
         _ => panic!("expected a struct with named fields"),
     };
-    let body_ident = quote! {_TypedRow};
-    let typed = fields.iter().map(|f| {
+    let mut to_arg = vec![];
+    let mut to_string = vec![];
+    let body_ident = quote! {PatchField};
+    let typed_enum = fields.iter().map(|f| {
         let name = &f.ident;
         let ty = &f.ty;
+        let name_str = f.ident.as_ref().unwrap().to_string();
+        to_arg.push(quote! {
+            #body_ident::#name(arg) => args.add(arg)
+        });
+        to_string.push(quote! {
+            #body_ident::#name(_) => #name_str.to_string()
+        });
         quote! {#name(#ty)}
     });
     let body = quote! {
-        enum _TypedRow {
-            #(#typed,)*
+        enum #body_ident {
+            #(#typed_enum,)*
+        }
+
+        impl std::fmt::Display for #body_ident {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "{}", match self {
+                    #(#to_string,)*
+                })
+            }
+        }
+
+        impl mae::repo::__private__::ToSql for #body_ident {
+            fn sql_insert(&self) -> String {
+                panic!("SQL_UPDATE NOT IMPLEMENTED")
+            }
+            fn sql_update(&self) -> String {
+                panic!("SQL_UPDATE NOT IMPLEMENTED")
+            }
+            fn sql_select(&self) -> String {
+                panic!("SQL_SELECT NOT IMPLEMENTED")
+            }
+            fn sql_patch(&self) -> String {
+                // TODO: This has to look something like this for an update many:
+                //UPDATE users u
+                // SET
+                //     name = v.name,
+                //     age  = v.age
+                // FROM (
+                //     VALUES
+                //         (1, 'Alice', 30),
+                //         (2, 'Bob',   25),
+                //         (3, 'Carol', 40)
+                // ) AS v(id, name, age)
+                // WHERE u.id = v.id;
+                self.to_string()
+            }
+        }
+
+        impl mae::repo::__private__::BindArgs for #body_ident {
+            fn bind(&self, mut args: &mut sqlx::postgres::PgArguments) {
+                let _ = match self {
+                    #(#to_arg,)*
+                };
+            }
+            fn bind_len(&self) -> usize {
+                // NOTE: There will always be one arg for a PatchField
+                1
+            }
         }
     };
     (body, body_ident)
@@ -167,9 +188,6 @@ fn as_variant(ast: &DeriveInput) -> (Body, BodyIdent) {
             #body_ident::#name => #name_str.to_string()
         });
         quote! {#name}
-    });
-    let sql_getter = fields.iter().map(|f| {
-        let name = &f.ident;
     });
     let body = quote! {
         enum #body_ident {
@@ -253,6 +271,35 @@ fn as_option(ast: &DeriveInput) -> (Body, BodyIdent) {
                 #(#string_some)*
 
                 return (sql.join(", "), sql_i.join(", "))
+            }
+        }
+
+        impl mae::repo::__private__::ToSql for #body_ident {
+            fn sql_insert(&self) -> String {
+                let (fields_str, values_str) = self.sql();
+                return format!("({}) VALUES ({})", fields_str, values_str);
+            }
+            fn sql_update(&self) -> String {
+                        let (fields_str, values_str) = self.sql();
+                        // TODO: This has to look something like this for an update many:
+                        //UPDATE users u
+                        // SET
+                        //     name = v.name,
+                        //     age  = v.age
+                        // FROM (
+                        //     VALUES
+                        //         (1, 'Alice', 30),
+                        //         (2, 'Bob',   25),
+                        //         (3, 'Carol', 40)
+                        // ) AS v(id, name, age)
+                        // WHERE u.id = v.id;
+                        return format!("({fields_str}) = (VALUES ({values_str}))");
+            }
+            fn sql_select(&self) -> String {
+                panic!("SQL_SELECT NOT IMPLEMENTED")
+            }
+            fn sql_patch(&self) -> String {
+                panic!("SQL_PATCH NOT IMPLEMENTED")
             }
         }
 

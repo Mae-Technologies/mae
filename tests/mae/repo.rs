@@ -15,6 +15,7 @@ struct CustomContext;
 
 type Context = mae_context::RequestContext<CustomContext>;
 
+#[derive(Debug)]
 #[schema("repoexample")]
 pub struct RepoExample {
     pub value: i32,
@@ -48,7 +49,7 @@ fn should_make_domain_struct() {
 }
 
 #[tokio::test]
-async fn should_create_record() {
+async fn should_insert() {
     let ctx = get_context::<CustomContext>(CustomContext {})
         .await
         .unwrap();
@@ -174,7 +175,7 @@ async fn should_error_on_update_without_filters() {
 }
 
 #[tokio::test]
-async fn should_error_update_with_empty_fields() {
+async fn should_error_on_update_with_row_fields_all_none() {
     let ctx = get_context::<CustomContext>(CustomContext {})
         .await
         .unwrap();
@@ -226,6 +227,96 @@ async fn should_update() {
         created_at: Some(Utc::now()),
     };
     let mut builder = RepoExample::update_many(data);
+    builder = builder.filter(vec![FilterOp::Begin(
+        Field::string_value,
+        Filter::Like("hello_world".into()),
+    )]);
+
+    let res = builder.fetch_all(&ctx).await;
+    //
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn should_error_on_patch_without_filters() {
+    let ctx = get_context::<CustomContext>(CustomContext {})
+        .await
+        .unwrap();
+
+    let data = vec![
+        PatchField::value(100),
+        PatchField::comment(Some("patching!".into())),
+        PatchField::status(DomainStatus::Archived),
+    ];
+    let mut builder = RepoExample::patch(data);
+
+    let res = builder.fetch_all(&ctx).await;
+    //
+    assert!(&res.is_err());
+    assert!(
+        res.err()
+            .unwrap()
+            .to_string()
+            .contains("Unable to Update/Patch")
+    );
+}
+#[tokio::test]
+async fn should_error_on_patch_with_fields_empty() {
+    let ctx = get_context::<CustomContext>(CustomContext {})
+        .await
+        .unwrap();
+
+    let data: Vec<PatchField> = vec![];
+    let mut builder = RepoExample::patch(data);
+    builder = builder.filter(vec![FilterOp::Begin(
+        Field::string_value,
+        Filter::Like("-- does not exist --".into()),
+    )]);
+
+    let res = builder.fetch_all(&ctx).await;
+    //
+    assert!(&res.is_err());
+    assert!(
+        res.err()
+            .unwrap()
+            .to_string()
+            .contains("Unable to Update/Patch")
+    );
+}
+#[tokio::test]
+async fn patch_should_return_empty() {
+    let ctx = get_context::<CustomContext>(CustomContext {})
+        .await
+        .unwrap();
+
+    let data = vec![
+        PatchField::value(100),
+        PatchField::comment(Some("patching!".into())),
+        PatchField::status(DomainStatus::Archived),
+    ];
+    let mut builder = RepoExample::patch(data);
+    builder = builder.filter(vec![FilterOp::Begin(
+        Field::string_value,
+        Filter::Like("-- does not exist --".into()),
+    )]);
+
+    let res = builder.fetch_all(&ctx).await;
+    //
+    assert!(&res.is_ok());
+    assert!(res.unwrap().len() == 0);
+}
+#[tokio::test]
+async fn should_patch() {
+    let ctx = get_context::<CustomContext>(CustomContext {})
+        .await
+        .unwrap();
+
+    let data = vec![
+        PatchField::value(100),
+        PatchField::comment(Some("patching!".into())),
+        PatchField::status(DomainStatus::Archived),
+    ];
+    let mut builder = RepoExample::patch(data);
     builder = builder.filter(vec![FilterOp::Begin(
         Field::string_value,
         Filter::Like("hello_world".into()),

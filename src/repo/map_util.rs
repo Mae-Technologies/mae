@@ -1,4 +1,4 @@
-use super::type_def::{ToField, ToRow};
+use super::type_def::{ToField, ToPatch, ToRow};
 use crate::request_context::ContextAccessor;
 use sqlx::Arguments;
 use std::fmt::Display;
@@ -11,7 +11,7 @@ use std::fmt::Display;
 //  - BindArgs
 //      If there are arguments, they need to be safely inserted into the SQL Query with PgArguments
 pub trait BindArgs {
-    // TODO: is any of these are to panic, this method should return a Result
+    // TODO: if any of these are to panic, this method should return a Result
     fn bind(&self, args: &mut sqlx::postgres::PgArguments);
     fn bind_len(&self) -> usize;
 }
@@ -27,17 +27,16 @@ pub trait ToSql {
 }
 
 // SQL Statements
-pub enum SqlStatement<T: ToRow, F: ToField> {
+pub enum SqlStatement<R: ToRow, F: ToField, P: ToPatch> {
     Select(Vec<F>),
-    InsertOne(T),
-    InsertMany(Vec<T>),
-    Update(T),
-    // TODO: Patch<Vec<T>> should be a new type (typed variants)
-    Patch(Vec<T>),
+    InsertOne(R),
+    InsertMany(Vec<R>),
+    Update(R),
+    Patch(Vec<P>),
 }
 
-// TODO: This should probably follow the ToSql impl
-impl<T: ToRow, F: ToField> SqlStatement<T, F> {
+// TODO: This should follow the ToSql impl
+impl<R: ToRow, F: ToField, P: ToPatch> SqlStatement<R, F, P> {
     // get the statement parts
     pub fn fields(&self) -> String {
         // TODO: this isn't very intuitive, (1) fields is not very descriptive, (2) returning a
@@ -54,11 +53,19 @@ impl<T: ToRow, F: ToField> SqlStatement<T, F> {
                 .collect::<Vec<_>>()
                 .join(", "),
             Self::Update(v) => v.sql_update(),
-            Self::Patch(v) => v
-                .iter()
-                .map(|f| f.sql_patch())
-                .collect::<Vec<_>>()
-                .join(", "),
+            Self::Patch(v) => {
+                let fields_str = v
+                    .iter()
+                    .map(|f| format!("{}", f.sql_patch()))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                let values_str: String = (0..v.len())
+                    .map(|i| format!("${}", i + 1))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return format!("({fields_str}) = (VALUES ({values_str}))");
+            }
             Self::Select(v) => v
                 .iter()
                 .map(|f| f.to_string())
@@ -68,7 +75,7 @@ impl<T: ToRow, F: ToField> SqlStatement<T, F> {
     }
 }
 
-impl<T: ToRow, F: ToField> BindArgs for SqlStatement<T, F> {
+impl<R: ToRow, F: ToField, P: ToPatch> BindArgs for SqlStatement<R, F, P> {
     // Bind the Statement values to the query
     // (Ie - Struct{value: 1} or Enum::value(1)) -> iter.v / v -> PgArguments.add(v)
     fn bind(&self, args: &mut sqlx::postgres::PgArguments) {

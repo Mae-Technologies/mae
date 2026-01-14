@@ -2,26 +2,26 @@ use std::fmt::Display;
 use std::marker::PhantomData;
 
 use super::map_util::{BindArgs, FilterOp, SqlStatement, ToSql, sql_where};
-use super::type_def::{Context, QueryAs, ToField, ToRow};
+use super::type_def::{Context, QueryAs, ToField, ToPatch, ToRow};
 use crate::request_context::ContextAccessor;
 
 // /////
 // INTERFACE TO THE SCHEMA def
 //  ////
 
-pub trait Build<C: Context, T: ToRow, F: ToField>: QueryAs + KeyAuths<F> {
+pub trait Build<C: Context, R: ToRow, F: ToField, P: ToPatch>: QueryAs + KeyAuths<F> {
     // Get a builder so we can build some SQL
-    fn build(statement: SqlStatement<T, F>) -> Builder<C, Self, T, F> {
-        Builder::<C, Self, T, F> {
+    fn build(statement: SqlStatement<R, F, P>) -> Builder<C, Self, R, F, P> {
+        Builder::<C, Self, R, F, P> {
             statement,
             filters: Self::keys(),
-            table_ident: Self::table_ident(),
+            schema: Self::schema(),
             ctx: PhantomData,
             query_as: PhantomData,
         }
     }
     // Extend a method so we can access the SQL Schema
-    fn table_ident() -> String;
+    fn schema() -> String;
 }
 
 // expose the auth keys for auth/auth options
@@ -34,54 +34,59 @@ pub trait KeyAuths<F: ToField> {
 }
 
 // Expose methods to the user defined struct
-pub trait Interface<C: Context, T: ToRow, F: ToField>: Build<C, T, F> {
-    fn insert_one(rec: T) -> Builder<C, Self, T, F> {
-        Self::build(SqlStatement::<T, F>::InsertOne(rec))
+pub trait Interface<C: Context, R: ToRow, F: ToField, P: ToPatch>: Build<C, R, F, P> {
+    fn insert_one(rec: R) -> Builder<C, Self, R, F, P> {
+        Self::build(SqlStatement::<R, F, P>::InsertOne(rec))
     }
 
-    fn insert_many(recs: Vec<T>) -> Builder<C, Self, T, F> {
-        Self::build(SqlStatement::<T, F>::InsertMany(recs))
+    fn insert_many(recs: Vec<R>) -> Builder<C, Self, R, F, P> {
+        Self::build(SqlStatement::<R, F, P>::InsertMany(recs))
     }
 
-    fn select(recs: Vec<F>) -> Builder<C, Self, T, F> {
-        Self::build(SqlStatement::<T, F>::Select(recs))
+    fn select(recs: Vec<F>) -> Builder<C, Self, R, F, P> {
+        Self::build(SqlStatement::<R, F, P>::Select(recs))
     }
-    fn update_many(rec: T) -> Builder<C, Self, T, F> {
+    fn update_many(rec: R) -> Builder<C, Self, R, F, P> {
         Self::build(SqlStatement::Update(rec))
     }
-    fn patch() {
-        //TODO: patch requires a new type to be add, tyoed Enum
-        todo!()
+    fn patch(recs: Vec<P>) -> Builder<C, Self, R, F, P> {
+        Self::build(SqlStatement::Patch(recs))
     }
 }
 
 // Anything that implements Build `B` implements the Interface
-impl<C: Context, T: ToRow, F: ToField, B: Build<C, T, F>> Interface<C, T, F> for B {}
+impl<C: Context, R: ToRow, F: ToField, P: ToPatch, B: Build<C, R, F, P>> Interface<C, R, F, P>
+    for B
+{
+}
 
 // ////
 // BUILDER MECHANICS
 // ////
 
 // Our builder will be composed of multiple parts
-pub struct Builder<C: Context, A: QueryAs, T: ToRow, F: ToField> {
+pub struct Builder<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch> {
     // SELECT, UPDATE, INSERT ...
-    statement: SqlStatement<T, F>,
+    statement: SqlStatement<R, F, P>,
     // WHERE ...
     filters: Vec<FilterOp<F>>,
     // Schema
-    table_ident: String,
+    schema: String,
     // Context, required for sql executions
     ctx: PhantomData<fn() -> C>,
     // QueryAs, required for sql executions
-    query_as: PhantomData<fn() -> A>, // TODO: Add offset/limit's
+    query_as: PhantomData<fn() -> A>, // TODO: Add returning/offset/limit's
 }
 
 // expose build methods with the *Builder Pattern*
-impl<C: Context, A: QueryAs, T: ToRow, F: ToField> Builder<C, A, T, F> {
+impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch> Builder<C, A, R, F, P> {
     // add filters to the query
     pub fn filter(mut self, mut values: Vec<FilterOp<F>>) -> Self {
         self.filters.append(&mut values);
         self
+    }
+    pub fn returning(mut self, mut values: Vec<FilterOp<F>>) -> Self {
+        todo!()
     }
     // add offset to the query
     pub fn offset(mut self, offset: usize) -> Self {
@@ -98,14 +103,14 @@ impl<C: Context, A: QueryAs, T: ToRow, F: ToField> Builder<C, A, T, F> {
 //
 
 // The Builder can convert to SQL Queries
-impl<C: Context, A: QueryAs, T: ToRow, F: ToField> RenameMetoToSqlRemoveOther<T, F>
-    for Builder<C, A, T, F>
+impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch> RenameMetoToSqlRemoveOther<R, F, P>
+    for Builder<C, A, R, F, P>
 {
-    fn statement(&self) -> &SqlStatement<T, F> {
+    fn statement(&self) -> &SqlStatement<R, F, P> {
         &self.statement
     }
-    fn table_ident(&self) -> &String {
-        &self.table_ident
+    fn schema(&self) -> &String {
+        &self.schema
     }
     fn filters(&self) -> &Vec<FilterOp<F>> {
         &self.filters
@@ -114,19 +119,21 @@ impl<C: Context, A: QueryAs, T: ToRow, F: ToField> RenameMetoToSqlRemoveOther<T,
 
 // The Builder can execute SQL Queries
 // Self is required to be RenameMetoToSqlRemoveOther so that it can access it's conversion methods
-impl<C: Context, A: QueryAs, T: ToRow, F: ToField> Execute<C, A, T, F> for Builder<C, A, T, F> where
-    Self: RenameMetoToSqlRemoveOther<T, F>
+impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch> Execute<C, A, R, F, P>
+    for Builder<C, A, R, F, P>
+where
+    Self: RenameMetoToSqlRemoveOther<R, F, P>,
 {
 }
 
 // Turn the type into an SQL Statement, from parts
-pub trait RenameMetoToSqlRemoveOther<T: ToRow, F: ToField> {
+pub trait RenameMetoToSqlRemoveOther<R: ToRow, F: ToField, P: ToPatch> {
     // get the INSERT, SELECT, UPDATE method
-    fn statement(&self) -> &SqlStatement<T, F>;
+    fn statement(&self) -> &SqlStatement<R, F, P>;
     // get the WHERE method
     fn filters(&self) -> &Vec<FilterOp<F>>;
     // get the schema name
-    fn table_ident(&self) -> &String;
+    fn schema(&self) -> &String;
     // TODO: this function is going to have to do some more leg work; the ToSql trait's method
     // fields() should return the field names + the binding labels, handling the building of the
     // sql statement here... hense the 'to_sql' method. change the fields() method name to
@@ -148,14 +155,14 @@ pub trait RenameMetoToSqlRemoveOther<T: ToRow, F: ToField> {
                 format!(
                     "SELECT {} FROM {}{};",
                     fields,
-                    self.table_ident(),
+                    self.schema(),
                     sql_where(&self.filters(), 0),
                 )
             }
             SqlStatement::InsertOne(f) => {
                 format!(
                     "INSERT INTO {} {}{} RETURNING *;",
-                    self.table_ident(),
+                    self.schema(),
                     self.statement().fields(),
                     sql_where(&self.filters(), self.statement().bind_len()),
                 )
@@ -164,7 +171,7 @@ pub trait RenameMetoToSqlRemoveOther<T: ToRow, F: ToField> {
                 unimplemented!("see comment for this method.");
                 format!(
                     "INSERT INTO {} {}{} RETURNING *;",
-                    self.table_ident(),
+                    self.schema(),
                     self.statement().fields(),
                     where_str
                 )
@@ -172,13 +179,18 @@ pub trait RenameMetoToSqlRemoveOther<T: ToRow, F: ToField> {
             SqlStatement::Update(f) => {
                 format!(
                     "UPDATE {} SET {}{} RETURNING *;",
-                    self.table_ident(),
+                    self.schema(),
                     self.statement().fields(),
                     sql_where(&self.filters(), self.statement().bind_len()),
                 )
             }
             SqlStatement::Patch(f) => {
-                unimplemented!("see comment for this method.");
+                format!(
+                    "UPDATE {} SET {}{} RETURNING *;",
+                    self.schema(),
+                    self.statement().fields(),
+                    sql_where(&self.filters(), self.statement().bind_len())
+                )
             }
         }
     }
@@ -196,8 +208,8 @@ pub trait RenameMetoToSqlRemoveOther<T: ToRow, F: ToField> {
 
 // Expose Execution methods
 // Self has to impl RenameMetoToSqlRemoveOther so that it can access SQL Conversion Methods
-pub trait Execute<C: Context, A: QueryAs, T: ToRow, F: ToField>:
-    RenameMetoToSqlRemoveOther<T, F>
+pub trait Execute<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch>:
+    RenameMetoToSqlRemoveOther<R, F, P>
 {
     async fn execute(&self, ctx: &C) -> anyhow::Result<()> {
         todo!()
@@ -210,12 +222,12 @@ pub trait Execute<C: Context, A: QueryAs, T: ToRow, F: ToField>:
     }
     async fn fetch_all(&self, ctx: &C) -> anyhow::Result<Vec<A>> {
         match &self.statement() {
-            SqlStatement::Update(_) => {
+            SqlStatement::Update(_) | SqlStatement::Patch(_) => {
                 if *&self.filters().len() < 1 {
-                    return Err(anyhow::anyhow!("Unable to Update without filters"));
+                    return Err(anyhow::anyhow!("Unable to Update/Patch without filters"));
                 }
                 if self.statement().bind_len() < 1 {
-                    return Err(anyhow::anyhow!("Unable to Update with empty fields"));
+                    return Err(anyhow::anyhow!("Unable to Update/Patch with empty fields"));
                 }
             }
             _ => {}
@@ -234,9 +246,9 @@ pub trait Execute<C: Context, A: QueryAs, T: ToRow, F: ToField>:
 }
 
 // Display the SQL to the user.
-impl<C: Context, A: QueryAs, T: ToRow, F: ToField> Display for Builder<C, A, T, F>
+impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch> Display for Builder<C, A, R, F, P>
 where
-    Self: RenameMetoToSqlRemoveOther<T, F>,
+    Self: RenameMetoToSqlRemoveOther<R, F, P>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_sql())
