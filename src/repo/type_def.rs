@@ -1,4 +1,4 @@
-use super::map_util::{BindArgs, ToSql};
+use super::map_util::{BindArgs, ToSqlParts};
 use crate::request_context::ContextAccessor;
 use std::fmt::Display;
 // /////
@@ -10,16 +10,16 @@ pub trait Context: ContextAccessor + Unpin + Send {}
 impl<C> Context for C where C: ContextAccessor + Unpin + Send {}
 
 // SOMETHING THAT WILL CONVERT TO A ROW -> T
-pub trait ToRow: ToSql + BindArgs {}
-impl<R> ToRow for R where R: ToSql + BindArgs {}
+pub trait ToRow: ToSqlParts + BindArgs {}
+impl<R> ToRow for R where R: ToSqlParts + BindArgs {}
 
 // SOMETHING THAT WILL CONVERT TO A FIELD -> F
-pub trait ToField: Display {}
-impl<F> ToField for F where F: Display {}
+pub trait ToField: ToSqlParts + Display {}
+impl<F> ToField for F where F: ToSqlParts + Display {}
 
 // SOMETHING THAT WILL CONVER TO  A FIELD<T> -> P
-pub trait ToPatch: ToSql + BindArgs {}
-impl<P> ToPatch for P where P: ToSql + BindArgs {}
+pub trait ToPatch: ToSqlParts + BindArgs {}
+impl<P> ToPatch for P where P: ToSqlParts + BindArgs {}
 
 // SOMETHING THAT AN SQL ROW CAN BE CONVERTED INTO -> A
 pub trait QueryAs: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Unpin + Send {}

@@ -128,21 +128,11 @@ fn as_typed(ast: &DeriveInput) -> (Body, BodyIdent) {
             }
         }
 
-        impl mae::repo::__private__::ToSql for #body_ident {
-            fn sql_patch(&self) -> String {
-                // TODO: This has to look something like this for an update many:
-                //UPDATE users u
-                // SET
-                //     name = v.name,
-                //     age  = v.age
-                // FROM (
-                //     VALUES
-                //         (1, 'Alice', 30),
-                //         (2, 'Bob',   25),
-                //         (3, 'Carol', 40)
-                // ) AS v(id, name, age)
-                // WHERE u.id = v.id;
-                self.to_string()
+        impl mae::repo::__private__::ToSqlParts for #body_ident {
+            fn to_sql_parts(&self) -> mae::repo::__private__::AsSqlParts {
+                // TODO: cannot accurately get the bind_idx. Catch it at a higher level
+                (vec![self.to_string()], None)
+
             }
         }
 
@@ -182,18 +172,20 @@ fn as_variant(ast: &DeriveInput) -> (Body, BodyIdent) {
     });
     let body = quote! {
         enum #body_ident {
+            All,
             #(#variant,)*
         }
 
-        impl mae::repo::__private__::ToSql for #body_ident {
-            fn sql_select(&self) -> String {
-                self.to_string()
+        impl mae::repo::__private__::ToSqlParts for #body_ident {
+            fn to_sql_parts(&self) -> mae::repo::__private__::AsSqlParts {
+                (vec![self.to_string()], None)
             }
         }
 
         impl std::fmt::Display for #body_ident {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(f, "{}", match self {
+                    Self::All => "*".into(),
                     #(#to_string,)*
                 })
             }
@@ -251,38 +243,28 @@ fn as_option(ast: &DeriveInput) -> (Body, BodyIdent) {
         struct #body_ident {
             #(#typed,)*
         }
+        //
+        // impl std::fmt::Display for #body_ident {
+        //     fn fmt(&self, &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        //         todo!()
+        //     }
+        // }
 
         impl #body_ident {
-            fn sql(&self) -> (String, String) {
+            fn sql(&self) -> mae::repo::__private__::AsSqlParts {
                 let mut i = 1;
                 let mut sql = vec![];
                 let mut sql_i = vec![];
                 #(#string_some)*
 
-                return (sql.join(", "), sql_i.join(", "))
+                (sql, Some(sql_i))
             }
         }
 
-        impl mae::repo::__private__::ToSql for #body_ident {
-            fn sql_insert(&self) -> String {
-                let (fields_str, values_str) = self.sql();
-                return format!("({}) VALUES ({})", fields_str, values_str);
-            }
-            fn sql_update(&self) -> String {
-                        let (fields_str, values_str) = self.sql();
-                        // TODO: This has to look something like this for an update many:
-                        //UPDATE users u
-                        // SET
-                        //     name = v.name,
-                        //     age  = v.age
-                        // FROM (
-                        //     VALUES
-                        //         (1, 'Alice', 30),
-                        //         (2, 'Bob',   25),
-                        //         (3, 'Carol', 40)
-                        // ) AS v(id, name, age)
-                        // WHERE u.id = v.id;
-                        return format!("({fields_str}) = (VALUES ({values_str}))");
+        impl mae::repo::__private__::ToSqlParts for #body_ident {
+            fn to_sql_parts(&self) -> mae::repo::__private__::AsSqlParts {
+                self.sql()
+
             }
         }
 

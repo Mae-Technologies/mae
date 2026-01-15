@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::marker::PhantomData;
 
-use super::map_util::{BindArgs, FilterOp, SqlStatement, ToSql, sql_where};
+use super::map_util::{BindArgs, FilterOp, SqlStatement, ToSqlParts, sql_where};
 use super::type_def::{Context, QueryAs, ToField, ToPatch, ToRow};
 use crate::request_context::ContextAccessor;
 
@@ -43,8 +43,8 @@ pub trait Interface<C: Context, R: ToRow, F: ToField, P: ToPatch>: Build<C, R, F
         Self::build(SqlStatement::<R, F, P>::InsertMany(recs))
     }
 
-    fn select(recs: Vec<F>) -> Builder<C, Self, R, F, P> {
-        Self::build(SqlStatement::<R, F, P>::Select(recs))
+    fn select(rec: Vec<F>) -> Builder<C, Self, R, F, P> {
+        Self::build(SqlStatement::<R, F, P>::Select(rec))
     }
     fn update_many(rec: R) -> Builder<C, Self, R, F, P> {
         Self::build(SqlStatement::Update(rec))
@@ -103,7 +103,7 @@ impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch> Builder<C, A, R, 
 //
 
 // The Builder can convert to SQL Queries
-impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch> RenameMetoToSqlRemoveOther<R, F, P>
+impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch> ToSql<R, F, P>
     for Builder<C, A, R, F, P>
 {
     fn statement(&self) -> &SqlStatement<R, F, P> {
@@ -118,16 +118,16 @@ impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch> RenameMetoToSqlRe
 }
 
 // The Builder can execute SQL Queries
-// Self is required to be RenameMetoToSqlRemoveOther so that it can access it's conversion methods
+// Self is required to be ToSql so that it can access it's conversion methods
 impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch> Execute<C, A, R, F, P>
     for Builder<C, A, R, F, P>
 where
-    Self: RenameMetoToSqlRemoveOther<R, F, P>,
+    Self: ToSql<R, F, P>,
 {
 }
 
 // Turn the type into an SQL Statement, from parts
-pub trait RenameMetoToSqlRemoveOther<R: ToRow, F: ToField, P: ToPatch> {
+pub trait ToSql<R: ToRow, F: ToField, P: ToPatch> {
     // get the INSERT, SELECT, UPDATE method
     fn statement(&self) -> &SqlStatement<R, F, P>;
     // get the WHERE method
@@ -143,56 +143,60 @@ pub trait RenameMetoToSqlRemoveOther<R: ToRow, F: ToField, P: ToPatch> {
     fn to_sql(&self) -> String {
         let where_str = sql_where(&self.filters(), self.statement().bind_len());
         match &self.statement() {
-            SqlStatement::Select(_) => {
-                // NOTE: the sql_where fn has a fixed idx at 0; the prefix of the statement always
-                // takes no arguements.
-
-                // NOTE: if the values return an empty string, select everything.
-                let mut fields = self.statement().field_values();
-                if fields.is_empty() {
-                    fields = "*".into();
-                }
-                format!(
-                    "SELECT {} FROM {}{};",
-                    fields,
-                    self.schema(),
-                    sql_where(&self.filters(), 0),
-                )
+            SqlStatement::Select(field_blocks) => {
+                let fields = field_blocks
+                    .iter()
+                    .map(|field| {
+                        let (mut str_value, _) = field.to_sql_parts();
+                        str_value.pop().unwrap()
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                println!("{}", &fields);
+                format!("SELECT {} FROM {}{};", &fields, self.schema(), where_str,)
             }
-            SqlStatement::InsertOne(f) => {
+            SqlStatement::InsertOne(row) => {
+                let (mut fields, mut bind_idx) = row.to_sql_parts();
+                let fields_str = fields.join(", ");
+                let bind_idx_str = bind_idx.unwrap().join(", ");
                 format!(
-                    "INSERT INTO {} {}{} RETURNING *;",
+                    "INSERT INTO {} ({}) VALUES ({}){} RETURNING *;",
                     self.schema(),
-                    self.statement().field_values(),
+                    fields_str,
+                    bind_idx_str,
                     sql_where(&self.filters(), self.statement().bind_len()),
                 )
             }
-            SqlStatement::InsertMany(f) => {
-                unimplemented!("see comment for this method.");
-                format!(
-                    "INSERT INTO {} {}{} RETURNING *;",
-                    self.schema(),
-                    self.statement().field_values(),
-                    where_str
-                )
-            }
-            SqlStatement::Update(f) => {
-                format!(
-                    "UPDATE {} SET {}{} RETURNING *;",
-                    self.schema(),
-                    self.statement().field_values(),
-                    sql_where(&self.filters(), self.statement().bind_len()),
-                )
-            }
-            SqlStatement::Patch(f) => {
-                format!(
-                    "UPDATE {} SET {}{} RETURNING *;",
-                    self.schema(),
-                    self.statement().field_values(),
-                    sql_where(&self.filters(), self.statement().bind_len())
-                )
-            }
+            _ => todo!(),
         }
+        //     SqlStatement::InsertOne(f) => {
+        //     }
+        //     SqlStatement::InsertMany(f) => {
+        //         unimplemented!("see comment for this method.");
+        //         format!(
+        //             "INSERT INTO {} {}{} RETURNING *;",
+        //             self.schema(),
+        //             self.statement().to_sql_parts(),
+        //             where_str
+        //         )
+        //     }
+        //     SqlStatement::Update(f) => {
+        //         format!(
+        //             "UPDATE {} SET {}{} RETURNING *;",
+        //             self.schema(),
+        //             self.statement().to_sql_parts(),
+        //             sql_where(&self.filters(), self.statement().bind_len()),
+        //         )
+        //     }
+        //     SqlStatement::Patch(f) => {
+        //         format!(
+        //             "UPDATE {} SET {}{} RETURNING *;",
+        //             self.schema(),
+        //             self.statement().to_sql_parts(),
+        //             sql_where(&self.filters(), self.statement().bind_len())
+        //         )
+        //     }
+        // }
     }
     // bind the arguments to the SQL query
     fn args(&self) -> sqlx::postgres::PgArguments {
@@ -207,9 +211,9 @@ pub trait RenameMetoToSqlRemoveOther<R: ToRow, F: ToField, P: ToPatch> {
 }
 
 // Expose Execution methods
-// Self has to impl RenameMetoToSqlRemoveOther so that it can access SQL Conversion Methods
+// Self has to impl ToSql so that it can access SQL Conversion Methods
 pub trait Execute<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch>:
-    RenameMetoToSqlRemoveOther<R, F, P>
+    ToSql<R, F, P>
 {
     async fn execute(&self, ctx: &C) -> anyhow::Result<()> {
         todo!()
@@ -230,6 +234,13 @@ pub trait Execute<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch>:
                     return Err(anyhow::anyhow!("Unable to Update/Patch with empty fields"));
                 }
             }
+            SqlStatement::Select(field_blocks) => {
+                if field_blocks.len() != 1 || field_blocks.iter().any(|f| f.to_string() != "*") {
+                    panic!(
+                        "Unable to use the fetch_all method while choosing which fields to return. Use the fetch_all_raw() method."
+                    );
+                }
+            }
             _ => {}
         }
         let sql = self.to_sql();
@@ -248,7 +259,7 @@ pub trait Execute<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch>:
 // Display the SQL to the user.
 impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch> Display for Builder<C, A, R, F, P>
 where
-    Self: RenameMetoToSqlRemoveOther<R, F, P>,
+    Self: ToSql<R, F, P>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_sql())

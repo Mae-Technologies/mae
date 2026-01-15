@@ -1,7 +1,8 @@
 use super::type_def::{ToField, ToPatch, ToRow};
 use crate::request_context::ContextAccessor;
+use num::iter;
 use sqlx::Arguments;
-use std::fmt::Display;
+use std::{fmt::Display, ops::Deref};
 // /////
 // INTERNAL: CONVERT THE BUILDER PARTS TO SQL
 // /////
@@ -16,39 +17,31 @@ pub trait BindArgs {
     fn bind_len(&self) -> usize;
 }
 
-//  - ToSql
+//  - ToSqlParts
 //      If there are column representations inside the types, they need to be extracted.
 //      This is done with the Dispay impl
-pub trait ToSql {
-    fn sql_insert(&self) -> String {
-        unimplemented!()
-    }
-    fn sql_update(&self) -> String {
-        unimplemented!()
-    }
-    fn sql_patch(&self) -> String {
-        unimplemented!()
-    }
-    fn sql_select(&self) -> String {
-        unimplemented!()
-    }
-    // function cohesion accross types: SqlStatement will impl the ToSql trait, using a phantom trait
-    // to tie it to the method below. This will drill down to the types to gather the sql parts.
-    // the same thing was done for BingArgs, but no associated types required
-    fn field_values(&self) -> String
-    where
-        Self: DrillDown,
-    {
-        // TODO: mrigrate all calls to this and remove the above functions, remove this body so
-        // there is no default body
-        unimplemented!()
-    }
+pub type AsSqlParts = (Vec<String>, Option<Vec<String>>);
+pub trait ToSqlParts {
+    fn to_sql_parts(&self) -> AsSqlParts;
 }
 
-// defining the phantom trait
-trait DrillDown {}
-
-impl<R: ToRow, F: ToField, P: ToPatch> DrillDown for SqlStatement<R, F, P> {}
+impl<R: ToRow, F: ToField, P: ToPatch> ToSqlParts for SqlStatement<R, F, P> {
+    fn to_sql_parts(&self) -> AsSqlParts {
+        todo!()
+        // TODO: This has to look something like this for an update many:
+        //UPDATE users u
+        // SET
+        //     name = v.name,
+        //     age  = v.age
+        // FROM (
+        //     VALUES
+        //         (1, 'Alice', 30),
+        //         (2, 'Bob',   25),
+        //         (3, 'Carol', 40)
+        // ) AS v(id, name, age)
+        // WHERE u.id = v.id;
+    }
+}
 
 // SQL Statements
 pub enum SqlStatement<R: ToRow, F: ToField, P: ToPatch> {
@@ -57,44 +50,6 @@ pub enum SqlStatement<R: ToRow, F: ToField, P: ToPatch> {
     InsertMany(Vec<R>),
     Update(R),
     Patch(Vec<P>),
-}
-
-impl<R: ToRow, F: ToField, P: ToPatch> ToSql for SqlStatement<R, F, P> {
-    fn field_values(&self) -> String {
-        // TODO: this isn't very intuitive, (1) fields is not very descriptive, (2) returning a
-        // string is not helpful. When building the sql string, we will need more details so the
-        // method is more helpful (IE, current update impl only works for one row, and same with
-        // insert) rename this function to sql() -> String, String
-        // NOTE: we don't need to convert and map the bindings for a select statement. to_string
-        // will do.
-        match self {
-            Self::InsertOne(v) => v.sql_insert(),
-            Self::InsertMany(v) => v
-                .iter()
-                .map(|f| f.sql_insert())
-                .collect::<Vec<_>>()
-                .join(", "),
-            Self::Update(v) => v.sql_update(),
-            Self::Patch(v) => {
-                let fields_str = v
-                    .iter()
-                    .map(|f| format!("{}", f.sql_patch()))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                let values_str: String = (0..v.len())
-                    .map(|i| format!("${}", i + 1))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                return format!("({fields_str}) = (VALUES ({values_str}))");
-            }
-            Self::Select(v) => v
-                .iter()
-                .map(|f| f.to_string())
-                .collect::<Vec<_>>()
-                .join(", "),
-        }
-    }
 }
 
 impl<R: ToRow, F: ToField, P: ToPatch> BindArgs for SqlStatement<R, F, P> {
