@@ -6,8 +6,8 @@ use std::fmt::Display;
 //  ////
 
 //  SOMETHING THAT WILL HAVE OUR CONTEXT -> C
-pub trait Context: ContextAccessor + Unpin + Send {}
-impl<C> Context for C where C: ContextAccessor + Unpin + Send {}
+pub trait Context: ContextAccessor + Unpin + Send + Sync {}
+impl<C> Context for C where C: ContextAccessor + Unpin + Send + Sync {}
 
 // SOMETHING THAT WILL CONVERT TO A ROW -> T
 pub trait ToRow: ToSqlParts + BindArgs {}

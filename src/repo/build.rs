@@ -1,9 +1,8 @@
 use std::fmt::Display;
 use std::marker::PhantomData;
 
-use super::map_util::{BindArgs, FilterOp, SqlStatement, ToSqlParts, concat_sql_parts, sql_where};
+use super::map_util::{BindArgs, FilterOp, SqlStatement, concat_sql_parts, sql_where};
 use super::type_def::{Context, QueryAs, ToField, ToPatch, ToRow};
-use crate::request_context::ContextAccessor;
 
 // /////
 // INTERFACE TO THE SCHEMA def
@@ -89,18 +88,19 @@ impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch> Builder<C, A, R, 
         self.filters.append(&mut values);
         self
     }
-    pub fn returning(mut self, mut values: Vec<F>) -> Self {
+    pub fn returning(mut self, values: Vec<F>) -> Self {
         self.returning = Some(values);
         self
     }
     // add offset to the query
-    pub fn offset(mut self, offset: usize) -> Self {
-        todo!()
-    }
-    // add limit to the query
-    pub fn limit(mut self, limit: usize) -> Self {
-        todo!()
-    }
+    // TODO: implement these
+    // pub fn offset(mut self, offset: usize) -> Self {
+    //     todo!()
+    // }
+    // // add limit to the query
+    // pub fn limit(mut self, limit: usize) -> Self {
+    //     todo!()
+    // }
 }
 
 //
@@ -155,7 +155,7 @@ pub trait ToSql<R: ToRow, F: ToField, P: ToPatch> {
                 format!("SELECT {} FROM {}{};", &fields, self.schema(), where_str,)
             }
             SqlStatement::InsertOne(row) => {
-                let (mut fields, mut bind_idx) = row.to_sql_parts();
+                let (fields, bind_idx) = row.to_sql_parts();
                 let fields_str = fields.join(", ");
                 let bind_idx_str = bind_idx.unwrap().join(", ");
                 format!(
@@ -167,7 +167,7 @@ pub trait ToSql<R: ToRow, F: ToField, P: ToPatch> {
                 )
             }
 
-            SqlStatement::InsertMany(f) => {
+            SqlStatement::InsertMany(_) => {
                 unimplemented!();
             }
             SqlStatement::Update(row) => {
@@ -179,7 +179,7 @@ pub trait ToSql<R: ToRow, F: ToField, P: ToPatch> {
                     self.statement().bind_len(),
                     Some("_x_".into()),
                 );
-                let (mut fields, mut bind_idx) = row.to_sql_parts();
+                let (fields, bind_idx) = row.to_sql_parts();
                 let f = fields.join(", ");
                 let f_f = fields
                     .into_iter()
@@ -207,7 +207,7 @@ pub trait ToSql<R: ToRow, F: ToField, P: ToPatch> {
                 );
                 // NOTE: the binding could not be calculated at that level. It has to be done
                 // manually
-                let (mut fields, _) =
+                let (fields, _) =
                     concat_sql_parts(fields.iter().map(|f| f.to_sql_parts()).collect::<Vec<_>>());
                 let bind_idx = 0..fields.len();
                 let f = fields.join(", ");
@@ -244,44 +244,61 @@ pub trait ToSql<R: ToRow, F: ToField, P: ToPatch> {
 pub trait Execute<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch>:
     ToSql<R, F, P>
 {
-    async fn execute(&self, ctx: &C) -> anyhow::Result<()> {
-        todo!()
+    fn execute(&self, _ctx: &C) -> impl std::future::Future<Output = anyhow::Result<()>> + Send
+    where
+        Self: Sync,
+    {
+        async { todo!() }
     }
-    async fn fetch_optional(&self, ctx: &C) -> anyhow::Result<Option<A>> {
-        todo!()
+    fn fetch_optional(
+        &self,
+        _ctx: &C,
+    ) -> impl std::future::Future<Output = anyhow::Result<Option<A>>> + Send
+    where
+        Self: Sync,
+    {
+        async { todo!() }
     }
-    async fn fetch_one(&self, ctx: &C) -> anyhow::Result<A> {
-        todo!()
+    fn fetch_one(&self, _ctx: &C) -> impl std::future::Future<Output = anyhow::Result<A>> + Send
+    where
+        Self: Sync,
+    {
+        async { todo!() }
     }
-    async fn fetch_all(&self, ctx: &C) -> anyhow::Result<Vec<A>> {
-        match &self.statement() {
-            SqlStatement::Update(_) | SqlStatement::Patch(_) => {
-                if *&self.filters().len() < 1 {
-                    return Err(anyhow::anyhow!("Unable to Update/Patch without filters"));
+    fn fetch_all(&self, ctx: &C) -> impl std::future::Future<Output = anyhow::Result<Vec<A>>> + Send
+    where
+        Self: Sync,
+    {
+        async move {
+            match self.statement() {
+                SqlStatement::Update(_) | SqlStatement::Patch(_) => {
+                    if *&self.filters().len() < 1 {
+                        return Err(anyhow::anyhow!("Unable to Update/Patch without filters"));
+                    }
+                    if self.statement().bind_len() < 1 {
+                        return Err(anyhow::anyhow!("Unable to Update/Patch with empty fields"));
+                    }
                 }
-                if self.statement().bind_len() < 1 {
-                    return Err(anyhow::anyhow!("Unable to Update/Patch with empty fields"));
+                SqlStatement::Select(field_blocks) => {
+                    if field_blocks.len() != 1 {
+                        panic!(
+                            "Unable to use the fetch_all method while choosing which fields to return. Use the fetch_all_raw() method."
+                        );
+                    }
                 }
+                _ => {}
             }
-            SqlStatement::Select(field_blocks) => {
-                if field_blocks.len() != 1 {
-                    panic!(
-                        "Unable to use the fetch_all method while choosing which fields to return. Use the fetch_all_raw() method."
-                    );
-                }
-            }
-            _ => {}
+            let sql = self.to_sql();
+            let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments>(
+                &sql,
+                self.args(),
+            );
+            let res: anyhow::Result<Vec<A>> = req
+                .fetch_all(ctx.db_pool())
+                .await
+                .map_err(|e| anyhow::anyhow!("Unable to fetch all: {}", e));
+            res
         }
-        let sql = self.to_sql();
-        let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments>(
-            &sql,
-            self.args(),
-        );
-        let res: anyhow::Result<Vec<A>> = req
-            .fetch_all(ctx.db_pool())
-            .await
-            .map_err(|e| anyhow::anyhow!("Unable to fetch all: {}", e));
-        res
     }
 }
 

@@ -1,8 +1,6 @@
 use super::type_def::{ToField, ToPatch, ToRow};
-use crate::request_context::ContextAccessor;
-use num::iter;
 use sqlx::Arguments;
-use std::{fmt::Display, ops::Deref};
+use std::fmt::Display;
 // /////
 // INTERNAL: CONVERT THE BUILDER PARTS TO SQL
 // /////

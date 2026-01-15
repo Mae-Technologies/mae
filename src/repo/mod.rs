@@ -1,5 +1,3 @@
-use mae_repo_macro::*;
-
 pub mod default;
 
 mod build;
@@ -19,7 +17,6 @@ pub mod implement {
 }
 
 pub mod repo_macro {
-    use super::*;
     pub use mae_repo_macro::schema;
 }
 

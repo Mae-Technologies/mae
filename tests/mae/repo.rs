@@ -8,7 +8,6 @@ use mae::request_context as mae_context;
 pub use serde_json::Map;
 use sqlx::Arguments;
 pub use sqlx::types::JsonValue as SqlxJson;
-use std::sync::Arc;
 
 #[derive(Clone)]
 struct CustomContext;
@@ -16,6 +15,7 @@ struct CustomContext;
 type Context = mae_context::RequestContext<CustomContext>;
 
 #[schema("repoexample")]
+#[allow(non_snake_case, non_camel_case_types, nonstandard_style)]
 pub struct RepoExample {
     pub value: i32,
     pub string_value: String,
@@ -248,7 +248,7 @@ async fn should_error_on_patch_without_filters() {
         PatchField::comment(Some("patching!".into())),
         PatchField::status(DomainStatus::Archived),
     ];
-    let mut builder = RepoExample::patch(data);
+    let builder = RepoExample::patch(data);
 
     let res = builder.fetch_all(&ctx).await;
     //
