@@ -140,7 +140,7 @@ pub trait ToSql<R: ToRow, F: ToField, P: ToPatch> {
     // get the schema name
     fn schema(&self) -> &String;
     fn to_sql(&self) -> String {
-        // TODO: The Returning cmd is fixed for now. There has to be a new impl to get all fields.
+        // TODO: The Returning cmd is hard coded for now. There has to be a new impl to get all fields.
         let where_str = sql_where(&self.filters(), self.statement().bind_len(), None);
         match &self.statement() {
             SqlStatement::Select(field_blocks) => {
