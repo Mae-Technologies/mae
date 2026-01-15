@@ -1,5 +1,3 @@
-#![feature(inherent_associated_types)]
-#![allow(incomplete_features)]
 extern crate proc_macro;
 use proc_macro::Ident;
 use proc_macro::TokenStream;
@@ -36,7 +34,7 @@ pub fn schema(args: TokenStream, input: TokenStream) -> TokenStream {
     // rebuild repo struct with the existing fields and default fields for the repo
     // NOTE: here, we are deriving the Repo with the proc_macro_derive fn from above
     let repo = quote! {
-        #[derive(mae_repo_macro::MaeRepo, sqlx::FromRow, serde::Serialize, serde::Deserialize, Clone)]
+        #[derive(mae_repo_macro::MaeRepo, Debug, sqlx::FromRow, serde::Serialize, serde::Deserialize, Clone)]
         pub struct #repo_ident {
             #[id] pub id: i32,
             pub sys_client: i32,
@@ -51,12 +49,6 @@ pub fn schema(args: TokenStream, input: TokenStream) -> TokenStream {
             #[from_context] pub updated_by: i32,
             #[gen_date] pub created_at: chrono::DateTime<chrono::Utc>,
             pub updated_at: chrono::DateTime<chrono::Utc>,
-        }
-
-        impl mae::repo::__private__::Build<Context, Row, Field, PatchField> for #repo_ident {
-            fn schema() -> String {
-                #repo_name.to_string()
-            }
         }
     };
     repo.into()
@@ -85,6 +77,11 @@ pub fn derive_mae_repo(item: TokenStream) -> TokenStream {
         #repo_variant
         #repo_typed
 
+        impl mae::repo::__private__::Build<Context, Row, Field, PatchField> for #repo_ident {
+            fn schema() -> String {
+                "repoexample".to_string()
+            }
+        }
     }
     .into()
 }
@@ -130,7 +127,7 @@ fn as_typed(ast: &DeriveInput) -> (Body, BodyIdent) {
 
         impl mae::repo::__private__::ToSqlParts for #body_ident {
             fn to_sql_parts(&self) -> mae::repo::__private__::AsSqlParts {
-                // TODO: cannot accurately get the bind_idx. Catch it at a higher level
+                // NOTE: cannot accurately get the bind_idx. Catch it at a higher level
                 (vec![self.to_string()], None)
 
             }
@@ -159,21 +156,32 @@ fn as_variant(ast: &DeriveInput) -> (Body, BodyIdent) {
         }) => &fields.named,
         _ => panic!("expected a struct with named fields"),
     };
-    let mut to_string = vec![];
-    let body_ident = quote! {Field};
-    let variant = fields.iter().map(|f| {
-        let name = &f.ident;
-        let ty = &f.ty;
-        let name_str = f.ident.as_ref().unwrap().to_string();
-        to_string.push(quote! {
+
+    let mut all_cols: Vec<String> = Vec::new();
+    let mut to_string_arms: Vec<proc_macro2::TokenStream> = Vec::new();
+    let mut variants: Vec<proc_macro2::TokenStream> = Vec::new();
+
+    let body_ident = quote! { Field };
+
+    for f in fields.iter() {
+        let name = f.ident.as_ref().unwrap();
+        let name_str = name.to_string();
+
+        all_cols.push(name_str.clone());
+
+        to_string_arms.push(quote! {
             #body_ident::#name => #name_str.to_string()
         });
-        quote! {#name}
-    });
+
+        variants.push(quote! { #name });
+    }
+
+    let all_cols_str = all_cols.join(", ");
+
     let body = quote! {
         enum #body_ident {
             All,
-            #(#variant,)*
+            #(#variants,)*
         }
 
         impl mae::repo::__private__::ToSqlParts for #body_ident {
@@ -185,12 +193,13 @@ fn as_variant(ast: &DeriveInput) -> (Body, BodyIdent) {
         impl std::fmt::Display for #body_ident {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(f, "{}", match self {
-                    Self::All => "*".into(),
-                    #(#to_string,)*
+                    Self::All => #all_cols_str.into(),
+                    #(#to_string_arms,)*
                 })
             }
         }
     };
+
     (body, body_ident)
 }
 fn as_option(ast: &DeriveInput) -> (Body, BodyIdent) {

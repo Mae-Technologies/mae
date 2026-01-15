@@ -1,7 +1,3 @@
-#![allow(incomplete_features)]
-#![feature(inherent_associated_types)]
-#![feature(more_qualified_paths)]
-
 pub mod app;
 pub mod error_response;
 pub mod middleware;

@@ -25,26 +25,33 @@ pub trait ToSqlParts {
     fn to_sql_parts(&self) -> AsSqlParts;
 }
 
-impl<R: ToRow, F: ToField, P: ToPatch> ToSqlParts for SqlStatement<R, F, P> {
-    fn to_sql_parts(&self) -> AsSqlParts {
-        todo!()
-        // TODO: This has to look something like this for an update many:
-        //UPDATE users u
-        // SET
-        //     name = v.name,
-        //     age  = v.age
-        // FROM (
-        //     VALUES
-        //         (1, 'Alice', 30),
-        //         (2, 'Bob',   25),
-        //         (3, 'Carol', 40)
-        // ) AS v(id, name, age)
-        // WHERE u.id = v.id;
+pub fn concat_sql_parts(parts: Vec<(Vec<String>, Option<Vec<String>>)>) -> AsSqlParts {
+    let mut cols = Vec::new();
+    let mut binds: Option<Vec<String>> = None;
+
+    for (c, b) in parts {
+        cols.extend(c);
+
+        if let Some(bv) = b {
+            binds.get_or_insert_with(Vec::new).extend(bv);
+        }
     }
+
+    (cols, binds)
 }
 
 // SQL Statements
 pub enum SqlStatement<R: ToRow, F: ToField, P: ToPatch> {
+    // TODO: I want an upsert() in here -> Insert, Update on conflict:
+    //INSERT INTO users (email, name)
+    // VALUES
+    //   ('a@x.com', 'Alice'),
+    //   ('b@x.com', 'Bob')
+    // ON CONFLICT (email)
+    // DO UPDATE SET
+    //   name = EXCLUDED.name,
+    //   updated_at = now()
+    // RETURNING *;
     Select(Vec<F>),
     InsertOne(R),
     InsertMany(Vec<R>),
@@ -183,11 +190,20 @@ impl<F: ToField> BindArgs for FilterOp<F> {
 
 // Static method to extract the Where block of the Sql Query. They will always be the same / have
 // the same structure
-pub fn sql_where<F: ToField>(w: &Vec<FilterOp<F>>, idx: usize) -> String {
+pub fn sql_where<F: ToField>(
+    w: &Vec<FilterOp<F>>,
+    idx: usize,
+    from_update_patch: Option<String>,
+) -> String {
+    let update_batch_ref_table = match from_update_patch {
+        Some(t) => format!("{t}."),
+        None => "".into(),
+    };
+
     let whr = w
         .iter()
         .zip(1..)
-        .map(|(f, i)| format!("{} ${}", f.to_string(), i + idx))
+        .map(|(f, i)| format!("{}{} ${}", update_batch_ref_table, f.to_string(), i + idx))
         .collect::<Vec<_>>()
         .join(" ");
     if !whr.is_empty() {

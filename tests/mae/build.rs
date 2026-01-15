@@ -7,10 +7,10 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 fn connect() -> PgPool {
     PgPoolOptions::new().connect_lazy_with(
         PgConnectOptions::new()
-            .host("127.0.0.1")
+            .host("localhost")
             .port(2345)
-            .password("password")
-            .username("postgres")
+            .password("secret")
+            .username("app")
             .ssl_mode(PgSslMode::Prefer)
             .database("test_mae"),
     )

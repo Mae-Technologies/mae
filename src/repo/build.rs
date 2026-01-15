@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::marker::PhantomData;
 
-use super::map_util::{BindArgs, FilterOp, SqlStatement, ToSqlParts, sql_where};
+use super::map_util::{BindArgs, FilterOp, SqlStatement, ToSqlParts, concat_sql_parts, sql_where};
 use super::type_def::{Context, QueryAs, ToField, ToPatch, ToRow};
 use crate::request_context::ContextAccessor;
 
@@ -18,6 +18,7 @@ pub trait Build<C: Context, R: ToRow, F: ToField, P: ToPatch>: QueryAs + KeyAuth
             schema: Self::schema(),
             ctx: PhantomData,
             query_as: PhantomData,
+            returning: None,
         }
     }
     // Extend a method so we can access the SQL Schema
@@ -75,7 +76,10 @@ pub struct Builder<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch> {
     // Context, required for sql executions
     ctx: PhantomData<fn() -> C>,
     // QueryAs, required for sql executions
-    query_as: PhantomData<fn() -> A>, // TODO: Add returning/offset/limit's
+    query_as: PhantomData<fn() -> A>,
+    //  what are we returning? (Insert / Update)
+    returning: Option<Vec<F>>,
+    // TODO: Add offset/limit's
 }
 
 // expose build methods with the *Builder Pattern*
@@ -85,8 +89,9 @@ impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch> Builder<C, A, R, 
         self.filters.append(&mut values);
         self
     }
-    pub fn returning(mut self, mut values: Vec<FilterOp<F>>) -> Self {
-        todo!()
+    pub fn returning(mut self, mut values: Vec<F>) -> Self {
+        self.returning = Some(values);
+        self
     }
     // add offset to the query
     pub fn offset(mut self, offset: usize) -> Self {
@@ -134,14 +139,9 @@ pub trait ToSql<R: ToRow, F: ToField, P: ToPatch> {
     fn filters(&self) -> &Vec<FilterOp<F>>;
     // get the schema name
     fn schema(&self) -> &String;
-    // TODO: this function is going to have to do some more leg work; the ToSql trait's method
-    // fields() should return the field names + the binding labels, handling the building of the
-    // sql statement here... hense the 'to_sql' method. change the fields() method name to
-    // fields_parts or maybe split the function into two. then build the sql statement here,
-    // locally. This will prevent some pain points in passing useless strings everywhere.
-    // Also, the Returning statements should be optional along with appending offset and limits
     fn to_sql(&self) -> String {
-        let where_str = sql_where(&self.filters(), self.statement().bind_len());
+        // TODO: The Returning cmd is fixed for now. There has to be a new impl to get all fields.
+        let where_str = sql_where(&self.filters(), self.statement().bind_len(), None);
         match &self.statement() {
             SqlStatement::Select(field_blocks) => {
                 let fields = field_blocks
@@ -152,7 +152,6 @@ pub trait ToSql<R: ToRow, F: ToField, P: ToPatch> {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                println!("{}", &fields);
                 format!("SELECT {} FROM {}{};", &fields, self.schema(), where_str,)
             }
             SqlStatement::InsertOne(row) => {
@@ -164,39 +163,69 @@ pub trait ToSql<R: ToRow, F: ToField, P: ToPatch> {
                     self.schema(),
                     fields_str,
                     bind_idx_str,
-                    sql_where(&self.filters(), self.statement().bind_len()),
+                    where_str,
                 )
             }
-            _ => todo!(),
+
+            SqlStatement::InsertMany(f) => {
+                unimplemented!();
+            }
+            SqlStatement::Update(row) => {
+                // TODO: this is with a Row, meaning it has an ID, the Where Statement will be
+                // appended with id = x
+                // TODO: downstream checks on uniqueness for Filters, Patch and Select.
+                let where_str = sql_where(
+                    &self.filters(),
+                    self.statement().bind_len(),
+                    Some("_x_".into()),
+                );
+                let (mut fields, mut bind_idx) = row.to_sql_parts();
+                let f = fields.join(", ");
+                let f_f = fields
+                    .into_iter()
+                    .map(|f| format!("{f} = _z_.{f}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let v = bind_idx
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let schema = self.schema();
+                format!(
+                    "UPDATE {schema} _x_ SET {f_f} FROM (VALUES ({v})) AS _z_({f}) {where_str} RETURNING *;"
+                )
+            }
+            SqlStatement::Patch(fields) => {
+                // TODO: this is with a Row, meaning it has an ID, the Where Statement will be
+                // appended with id = x
+                // TODO: downstream checks on uniqueness for Filters, Patch and Select.
+                let where_str = sql_where(
+                    &self.filters(),
+                    self.statement().bind_len(),
+                    Some("_x_".into()),
+                );
+                // NOTE: the binding could not be calculated at that level. It has to be done
+                // manually
+                let (mut fields, _) =
+                    concat_sql_parts(fields.iter().map(|f| f.to_sql_parts()).collect::<Vec<_>>());
+                let bind_idx = 0..fields.len();
+                let f = fields.join(", ");
+                let f_f = fields
+                    .iter()
+                    .map(|f| format!("{f} = _z_.{f}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let v = bind_idx
+                    .map(|i| format!("${:?}", i + 1))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let schema = self.schema();
+                format!(
+                    "UPDATE {schema} _x_ SET {f_f} FROM (VALUES ({v})) AS _z_({f}) {where_str} RETURNING *;"
+                )
+            }
         }
-        //     SqlStatement::InsertOne(f) => {
-        //     }
-        //     SqlStatement::InsertMany(f) => {
-        //         unimplemented!("see comment for this method.");
-        //         format!(
-        //             "INSERT INTO {} {}{} RETURNING *;",
-        //             self.schema(),
-        //             self.statement().to_sql_parts(),
-        //             where_str
-        //         )
-        //     }
-        //     SqlStatement::Update(f) => {
-        //         format!(
-        //             "UPDATE {} SET {}{} RETURNING *;",
-        //             self.schema(),
-        //             self.statement().to_sql_parts(),
-        //             sql_where(&self.filters(), self.statement().bind_len()),
-        //         )
-        //     }
-        //     SqlStatement::Patch(f) => {
-        //         format!(
-        //             "UPDATE {} SET {}{} RETURNING *;",
-        //             self.schema(),
-        //             self.statement().to_sql_parts(),
-        //             sql_where(&self.filters(), self.statement().bind_len())
-        //         )
-        //     }
-        // }
     }
     // bind the arguments to the SQL query
     fn args(&self) -> sqlx::postgres::PgArguments {
@@ -235,7 +264,7 @@ pub trait Execute<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch>:
                 }
             }
             SqlStatement::Select(field_blocks) => {
-                if field_blocks.len() != 1 || field_blocks.iter().any(|f| f.to_string() != "*") {
+                if field_blocks.len() != 1 {
                     panic!(
                         "Unable to use the fetch_all method while choosing which fields to return. Use the fetch_all_raw() method."
                     );
