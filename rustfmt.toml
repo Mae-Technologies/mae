@@ -1,0 +1,15 @@
+# Enforce 4-space indentation and max width
+hard_tabs = false
+tab_spaces = 4
+max_width = 100
+
+# Use consistent formatting for control flow and imports
+reorder_imports = true
+use_small_heuristics = "Max"
+newline_style = "Unix"
+
+# Add trailing commas where possible
+trailing_comma = "Always"
+
+# Force rustfmt to normalize comments
+normalize_comments = true

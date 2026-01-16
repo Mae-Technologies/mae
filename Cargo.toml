@@ -2,7 +2,7 @@
 name = "mae"
 version = "0.1.1"
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 description = "Mae is used to standardize and streamline the creation of micro-services."
 homepage = "https://statbook.io"
 readme = "./README.md"

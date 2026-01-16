@@ -1,0 +1,12 @@
+# Ban certain dangerous methods
+disallowed-methods = [
+  { path = "std::option::Option::unwrap", reason = "Use explicit handling" },
+  { path = "std::option::Option::expect", reason = "Use explicit handling" },
+  { path = "std::result::Result::unwrap", reason = "Use ? or match instead" },
+  { path = "std::result::Result::expect", reason = "Use ? or match instead" },
+]
+
+# NOTE: This doesn't work
+# Enable pedantic lints for stricter enforcement
+# Optional: enforce unsafe block comments
+# warn = ["clippy::pedantic", "clippy::undocumented_unsafe_blocks"]
