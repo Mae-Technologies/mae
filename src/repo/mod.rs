@@ -16,8 +16,8 @@ pub mod implement {
     pub use type_def::ToField;
 }
 
-pub mod repo_macro {
-    pub use mae_repo_macro::schema;
+pub mod macros {
+    pub use mae_macros::schema;
 }
 
 pub mod __private__ {

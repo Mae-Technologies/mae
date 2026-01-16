@@ -9,7 +9,7 @@ pub mod prelude {
     pub use crate::app::build::{App, ApplicationBaseUrl, HmacSecret, Run};
     pub use crate::app::run::run;
     pub use crate::middleware::get_session;
-    pub use mae_run_app_macro::*;
+    pub use mae_macros::*;
 
     pub use actix_web::dev::Server;
     pub use actix_web::middleware::from_fn;
