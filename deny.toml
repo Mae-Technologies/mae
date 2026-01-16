@@ -10,7 +10,8 @@ allow = [
     "Unicode-3.0",
     "ISC",
     "LicenseRef-Proprietary",
-    "MPL-2.0"
+    "MPL-2.0",
+    "Zlib"
 ]
 
 [advisories]
