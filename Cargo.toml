@@ -12,8 +12,8 @@ repository = "https://github.com/MrCartaaa/mae"
 panic = "unwind"
 
 [dependencies]
-mae-repo_macro = {path = "./repo_macro"}
-mae-run_app_macro = {path = "./run_app_macro"}
+mae-repo_macro = {path = "../repo_macro"}
+mae-run_app_macro = {path = "../run_app_macro"}
 chrono = { version = "0.4.42", features = ["serde"] }
 serde_json = "1.0.149"
 sqlx = { version = "0.8.6", features = ["chrono", "macros", "postgres", "runtime-async-std"] }
