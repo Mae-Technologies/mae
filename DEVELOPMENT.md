@@ -2,7 +2,7 @@
 
 Focus on code quality, safety, security, and reliability.
 
-This project enforces Rust best practices using nightly tooling, aggressive linting, undefined behavior detection, dependency auditing, comprehensive CI, and Licensing.
+This project enforces Rust best practices using nightly tooling, aggressive linting, undefined behavior detection, dependency auditing (with `cargo-deny`), comprehensive CI, and Licensing.
 
 ## Key Features
 
@@ -13,7 +13,7 @@ This project enforces Rust best practices using nightly tooling, aggressive lint
 - **Opinionated rustfmt** configuration for consistent code style
 - **Optimized GitHub Actions CI** that runs checks only on changed `.rs` files
 - **Compile-time denials** for common anti-patterns (configured in `lib.rs`)
-- **Git pre-push hook** that automatically runs formatting, tests, Miri, Clippy, audit, and deny checks before pushing commits
+- **Git pre-push hook** that automatically runs formatting, tests, Miri, Clippy, and deny checks before pushing commits
 - **Git pre-commit hook** that checks for latest rust_template changes
 - **Comprehensive .gitignore** to exclude build artifacts, temporary files, environment files, Docker outputs, and IDE/editor settings
 - **License support** via `--private <name>` flag (creates proprietary LICENSE file) **or** `--name <name>` flag (creates MIT LICENSE file)
@@ -103,7 +103,6 @@ Triggers on push/PR to `main` or `master`. Includes:
 - `cargo +nightly fmt -- --check`
 - `cargo +nightly clippy -- -D warnings -D clippy::undocumented_unsafe_blocks`
 - `cargo +nightly miri test`
-- `cargo audit`
 - `cargo deny check`
 
 Optimizes performance by detecting changed `.rs` files and skipping checks when no Rust code is modified.
@@ -151,12 +150,6 @@ cargo miri test
 
 ```bash
 cargo clippy -- -D warnings
-```
-
-5. Audits dependencies:
-
-```bash
-cargo audit
 ```
 
 6. Verifies workspace policies:
@@ -290,7 +283,6 @@ Run these commands to verify code quality locally:
 cargo +nightly fmt -- --check                    # Formatting
 cargo +nightly clippy -- -D warnings              # Strict linting
 cargo +nightly miri test                          # Undefined behavior
-cargo audit                                       # Vulnerabilities
 cargo deny check                                  # Licenses / sources / bans
 ```
 

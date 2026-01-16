@@ -12,7 +12,7 @@ on:
 
 jobs:
   nightly-ci:
-    name: Nightly Clippy + Miri + Audit + Deny + Fmt + Unsafe Checks
+    name: Nightly Clippy + Miri + Deny + Fmt + Unsafe Checks
     runs-on: ubuntu-latest
 
     steps:
@@ -109,13 +109,6 @@ jobs:
       - name: Run Miri Tests
         if: steps.changed_files.outputs.files != ''
         run: cargo +nightly miri test --all-targets --all-features -- --nocapture
-
-      # --- Run Cargo Audit ---
-      - name: Run Cargo Audit
-        if: steps.changed_files.outputs.files != ''
-        run: |
-          cargo install cargo-audit --force
-          cargo +nightly audit
 
       # --- Run Cargo Deny ---
       - name: Run Cargo Deny
