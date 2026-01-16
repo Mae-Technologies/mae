@@ -4,6 +4,11 @@ use syn::{Data, DataStruct, DeriveInput, Fields};
 type Body = proc_macro2::TokenStream;
 type BodyIdent = proc_macro2::TokenStream;
 
+// TODO:
+// 1. There should be a From impl for Patch -> Field
+// 2. Impl EnumIter for Fields -> this is to generate randomness for tests
+// 3, If there is a flag #[test] at the top of the repo struct to impl a randomness generator
+
 pub fn as_typed(ast: &DeriveInput) -> (Body, BodyIdent) {
     let fields = match &ast.data {
         Data::Struct(DataStruct {
@@ -29,7 +34,7 @@ pub fn as_typed(ast: &DeriveInput) -> (Body, BodyIdent) {
     });
     let body = quote! {
         #[allow(non_snake_case, non_camel_case_types, nonstandard_style)]
-        enum #body_ident {
+        pub enum #body_ident {
             #(#typed_enum,)*
         }
 
@@ -96,7 +101,7 @@ pub fn as_variant(ast: &DeriveInput) -> (Body, BodyIdent) {
 
     let body = quote! {
         #[allow(non_snake_case, non_camel_case_types, nonstandard_style)]
-        enum #body_ident {
+        pub enum #body_ident {
             All,
             #(#variants,)*
         }
@@ -136,7 +141,7 @@ pub fn as_option(ast: &DeriveInput) -> (Body, BodyIdent) {
         // function to generate that context
         let name = &f.ident;
         let ty = &f.ty;
-        quote! {#name: Option<#ty>}
+        quote! {pub #name: Option<#ty>}
     });
     let string_some = fields.iter().map(|f| {
         let name = &f.ident;
@@ -167,7 +172,7 @@ pub fn as_option(ast: &DeriveInput) -> (Body, BodyIdent) {
     });
     let body = quote! {
         #[allow(non_snake_case, non_camel_case_types, nonstandard_style)]
-        struct #body_ident {
+        pub struct #body_ident {
             #(#typed,)*
         }
         //

@@ -1,6 +1,8 @@
 use std::fmt::Display;
 use std::marker::PhantomData;
 
+use sqlx::{Executor, Postgres};
+
 use super::map_util::{BindArgs, FilterOp, SqlStatement, concat_sql_parts, sql_where};
 use super::type_def::{Context, QueryAs, ToField, ToPatch, ToRow};
 
@@ -34,22 +36,24 @@ pub trait KeyAuths<F: ToField> {
 }
 
 // Expose methods to the user defined struct
+// _ctx in the methods is for a future feature
+// TODO: impl ctx
 pub trait Interface<C: Context, R: ToRow, F: ToField, P: ToPatch>: Build<C, R, F, P> {
-    fn insert_one(rec: R) -> Builder<C, Self, R, F, P> {
+    fn insert_one(_ctx: &C, rec: R) -> Builder<C, Self, R, F, P> {
         Self::build(SqlStatement::<R, F, P>::InsertOne(rec))
     }
 
-    fn insert_many(recs: Vec<R>) -> Builder<C, Self, R, F, P> {
+    fn insert_many(_ctx: &C, recs: Vec<R>) -> Builder<C, Self, R, F, P> {
         Self::build(SqlStatement::<R, F, P>::InsertMany(recs))
     }
 
-    fn select(rec: Vec<F>) -> Builder<C, Self, R, F, P> {
+    fn select(_ctx: &C, rec: Vec<F>) -> Builder<C, Self, R, F, P> {
         Self::build(SqlStatement::<R, F, P>::Select(rec))
     }
-    fn update_many(rec: R) -> Builder<C, Self, R, F, P> {
+    fn update_many(_ctx: &C, rec: R) -> Builder<C, Self, R, F, P> {
         Self::build(SqlStatement::Update(rec))
     }
-    fn patch(recs: Vec<P>) -> Builder<C, Self, R, F, P> {
+    fn patch(_ctx: &C, recs: Vec<P>) -> Builder<C, Self, R, F, P> {
         Self::build(SqlStatement::Patch(recs))
     }
 }
@@ -139,9 +143,10 @@ pub trait ToSql<R: ToRow, F: ToField, P: ToPatch> {
     fn filters(&self) -> &Vec<FilterOp<F>>;
     // get the schema name
     fn schema(&self) -> &String;
+    // TODO: downstream checks on uniqueness for CRUD Operations
     fn to_sql(&self) -> String {
         // TODO: The Returning cmd is hard coded for now. There has to be a new impl to get all fields.
-        let where_str = sql_where(&self.filters(), self.statement().bind_len(), None);
+        let where_str = sql_where(self.filters(), self.statement().bind_len(), None);
         match &self.statement() {
             SqlStatement::Select(field_blocks) => {
                 let fields = field_blocks
@@ -173,9 +178,8 @@ pub trait ToSql<R: ToRow, F: ToField, P: ToPatch> {
             SqlStatement::Update(row) => {
                 // TODO: this is with a Row, meaning it has an ID, the Where Statement will be
                 // appended with id = x
-                // TODO: downstream checks on uniqueness for Filters, Patch and Select.
                 let where_str = sql_where(
-                    &self.filters(),
+                    self.filters(),
                     self.statement().bind_len(),
                     Some("_x_".into()),
                 );
@@ -197,11 +201,8 @@ pub trait ToSql<R: ToRow, F: ToField, P: ToPatch> {
                 )
             }
             SqlStatement::Patch(fields) => {
-                // TODO: this is with a Row, meaning it has an ID, the Where Statement will be
-                // appended with id = x
-                // TODO: downstream checks on uniqueness for Filters, Patch and Select.
                 let where_str = sql_where(
-                    &self.filters(),
+                    self.filters(),
                     self.statement().bind_len(),
                     Some("_x_".into()),
                 );
@@ -265,14 +266,17 @@ pub trait Execute<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch>:
     {
         async { todo!() }
     }
-    fn fetch_all(&self, ctx: &C) -> impl std::future::Future<Output = anyhow::Result<Vec<A>>> + Send
+    fn fetch_all<'c>(
+        &self,
+        exec: impl Executor<'c, Database = Postgres>,
+    ) -> impl std::future::Future<Output = anyhow::Result<Vec<A>>> + Send
     where
         Self: Sync,
     {
         async move {
             match self.statement() {
                 SqlStatement::Update(_) | SqlStatement::Patch(_) => {
-                    if *&self.filters().len() < 1 {
+                    if self.filters().is_empty() {
                         return Err(anyhow::anyhow!("Unable to Update/Patch without filters"));
                     }
                     if self.statement().bind_len() < 1 {
@@ -294,7 +298,7 @@ pub trait Execute<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch>:
                 self.args(),
             );
             let res: anyhow::Result<Vec<A>> = req
-                .fetch_all(ctx.db_pool())
+                .fetch_all(exec)
                 .await
                 .map_err(|e| anyhow::anyhow!("Unable to fetch all: {}", e));
             res

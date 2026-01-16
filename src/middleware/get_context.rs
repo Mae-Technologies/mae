@@ -1,6 +1,6 @@
 use crate::error_response::e500;
 use crate::request_context::RequestContext;
-use crate::session::{Session, TypedSession};
+use crate::session::TypedSession;
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::error::InternalError;
@@ -22,7 +22,7 @@ pub async fn get_context<T: 'static + Clone>(
     }?;
 
     match session.get_session().map_err(e500)? {
-        Some(session_data) => {
+        Some(session) => {
             let db_pool = Arc::clone(
                 &req.app_data::<web::Data<PgPool>>()
                     .ok_or_else(|| anyhow!("Unable to access PgPool."))
@@ -38,7 +38,6 @@ pub async fn get_context<T: 'static + Clone>(
                     .clone()
                     .into_inner(),
             );
-            let session = Session::from(session_data);
             req.extensions_mut().insert(RequestContext {
                 db_pool,
                 custom,

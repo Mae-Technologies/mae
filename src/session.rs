@@ -75,7 +75,7 @@ impl TypedSession {
                     Some(user_id) => {
                         let user_id = user_id.parse::<i32>();
                         match user_id {
-                            Ok(user_id) => Ok(Some(Session { user_id: user_id })),
+                            Ok(user_id) => Ok(Some(Session { user_id })),
                             Err(_) => Ok(None),
                         }
                     }

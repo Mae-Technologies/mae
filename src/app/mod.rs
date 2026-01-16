@@ -1,11 +1,11 @@
-pub mod app;
+// TODO: Im pretty sure the crate::aop::app is not being used at all. -- it has been removed, but
+// if something errors when using this crate, look into it.
 pub mod build;
 pub mod configuration;
 mod run;
 pub use run::*;
 
 pub mod prelude {
-    pub use crate::app::app;
     pub use crate::app::build::{App, ApplicationBaseUrl, HmacSecret, Run};
     pub use crate::app::run::run;
     pub use crate::middleware::get_session;

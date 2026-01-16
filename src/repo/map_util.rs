@@ -189,7 +189,7 @@ impl<F: ToField> BindArgs for FilterOp<F> {
 // Static method to extract the Where block of the Sql Query. They will always be the same / have
 // the same structure
 pub fn sql_where<F: ToField>(
-    w: &Vec<FilterOp<F>>,
+    w: &[FilterOp<F>],
     idx: usize,
     from_update_patch: Option<String>,
 ) -> String {
@@ -201,7 +201,7 @@ pub fn sql_where<F: ToField>(
     let whr = w
         .iter()
         .zip(1..)
-        .map(|(f, i)| format!("{}{} ${}", update_batch_ref_table, f.to_string(), i + idx))
+        .map(|(f, i)| format!("{}{} ${}", update_batch_ref_table, f, i + idx))
         .collect::<Vec<_>>()
         .join(" ");
     if !whr.is_empty() {

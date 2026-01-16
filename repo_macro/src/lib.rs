@@ -1,18 +1,38 @@
 #[allow(non_camel_case_types, nonstandard_style)]
 mod util;
-use util::*;
-extern crate proc_macro;
+
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::Data::Struct;
-use syn::Fields::Named;
-use syn::FieldsNamed;
-use syn::parse_macro_input;
-use syn::{Data, DataStruct, DeriveInput, Fields, LitStr};
+use syn::{
+    Data::Struct,
+    DataStruct, DeriveInput, Fields,
+    Fields::Named,
+    FieldsNamed, Ident, LitStr, Token,
+    parse::{Parse, ParseStream},
+    parse_macro_input,
+};
+
+use util::*;
+
+struct Args {
+    ctx: Ident,
+    schema: LitStr,
+    _comma: Token![,],
+}
+
+impl Parse for Args {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        Ok(Self {
+            ctx: input.parse()?,
+            _comma: input.parse()?,
+            schema: input.parse()?,
+        })
+    }
+}
 
 #[proc_macro_attribute]
 pub fn schema(args: TokenStream, input: TokenStream) -> TokenStream {
-    let repo_name = parse_macro_input!(args as LitStr).value();
+    let Args { ctx, schema, .. } = parse_macro_input!(args as Args);
     let ast = parse_macro_input!(input as DeriveInput);
 
     let repo_ident = &ast.ident;
@@ -59,14 +79,20 @@ pub fn schema(args: TokenStream, input: TokenStream) -> TokenStream {
             #[gen_date] pub created_at: chrono::DateTime<chrono::Utc>,
             pub updated_at: chrono::DateTime<chrono::Utc>,
         }
-        impl mae::repo::__private__::Build<Context, Row, Field, PatchField> for #repo_ident {
+        impl mae::repo::__private__::Build<#ctx, Row, Field, PatchField> for #repo_ident {
             fn schema() -> String {
-                #repo_name.to_string()
+                #schema.to_string()
             }
         }
     };
     repo.into()
 }
+
+// TODO:
+//  attributes
+//  1. from_context should take a function type to calculate it
+//  2. gen_date should be changed to private_replace("now()") to replace the field's display +
+//     BindArgs
 
 #[proc_macro_derive(MaeRepo, attributes(id, from_context, gen_date))]
 pub fn derive_mae_repo(item: TokenStream) -> TokenStream {
@@ -74,7 +100,7 @@ pub fn derive_mae_repo(item: TokenStream) -> TokenStream {
 
     // Making sure it the derive macro is called on a struct;
     let _ = match &ast.data {
-        Data::Struct(DataStruct {
+        Struct(DataStruct {
             fields: Fields::Named(fields),
             ..
         }) => &fields.named,
