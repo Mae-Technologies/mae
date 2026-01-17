@@ -1,4 +1,6 @@
-BEGIN;
+
+SECURITY DEFINER
+SET search_path = publicBEGIN;
 SELECT create_table(
   'repoexample',
   '
