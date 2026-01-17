@@ -98,3 +98,85 @@ pub fn must_ne<V: PartialEq + std::fmt::Debug,>(left: V, right: V,) {
 pub fn must_be_true(b: bool,) {
     assert!(b);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn option_must_some_ok() {
+        let v = Some(42,).must();
+        must_eq(v, 42,);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected Some, got None")]
+    fn option_must_none_panics() {
+        let _: i32 = None.must();
+    }
+
+    #[test]
+    fn option_must_expect_ok() {
+        let v = Some("hello",).must_expect("should have value",);
+        must_eq(v, "hello",);
+    }
+
+    #[test]
+    #[should_panic(expected = "custom msg")]
+    fn option_must_expect_panics_with_msg() {
+        let _: i32 = None.must_expect("custom msg",);
+    }
+
+    #[test]
+    fn result_must_ok() {
+        let v: i32 = Ok::<i32, &str,>(7,).must();
+        must_eq(v, 7,);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected Ok")]
+    fn result_must_err_panics() {
+        let r: Result<i32, &str,> = Err("boom",);
+        let _ = r.must();
+    }
+
+    #[test]
+    fn result_must_expect_ok() {
+        let v: &str = Ok::<&str, &str,>("yes",).must_expect("should succeed",);
+        must_eq(v, "yes",);
+    }
+
+    #[test]
+    #[should_panic(expected = "should fail")]
+    fn result_must_expect_panics_with_msg() {
+        let r: Result<i32, &str,> = Err("nope",);
+        let _ = r.must_expect("should fail",);
+    }
+
+    #[test]
+    fn free_helpers_work() {
+        let a = must_be_some(Some(1,),);
+        let b = must_be_ok::<_, &str,>(Ok::<i32, &str,>(2,),);
+        let c = must_expect_some(Some(3,), "msg",);
+        let d = must_expect_ok::<_, &str,>(Ok::<i32, &str,>(4,), "msg",);
+
+        must_eq(a + b + c + d, 10,);
+    }
+
+    #[test]
+    fn must_eq_and_ne() {
+        must_eq(5, 5,);
+        must_ne(5, 6,);
+    }
+
+    #[test]
+    fn must_be_true_works() {
+        must_be_true(true,);
+    }
+
+    #[test]
+    #[should_panic]
+    fn must_be_true_panics_on_false() {
+        must_be_true(false,);
+    }
+}
