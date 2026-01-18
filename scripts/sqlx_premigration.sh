@@ -35,7 +35,7 @@ is_debug() {
 
 # stdout is a terminal
 is_tty() {
-  [[ -t 1 ]]
+  [[ "${TTY_OVERRIDE:-}" == "1" ]] || [[ -t 1 ]]
 }
 
 # -----------------------------------------------------------------------------
@@ -88,6 +88,7 @@ fi
 # -----------------------------------------------------------------------------
 # Load .env if present
 # -----------------------------------------------------------------------------
+# TODO: find a DB_PORT_OVERRIDE and get all the values from .env if missing -- optional, migrate from .env to yaml
 if [[ -z "${NO_DOT_ENV:-}" && -f ".env" ]]; then
   log_info "Loading .env"
   set -a
@@ -137,25 +138,15 @@ require_var TABLE_PROVISIONER_PWD
 require_var ADMIN_MIGRATIONS_PATH
 require_var APP_MIGRATIONS_PATH
 
-# -----------------------------------------------------------------------------
-# Build DB URLs ONLY if component vars exist; also ensure DB_HOST is used.
-# If a *_DATABASE_URL is provided, keep it; otherwise build it.
-# -----------------------------------------------------------------------------
-if [[ -z "${SUPER_DATABASE_URL:-}" ]]; then
-  SUPER_DATABASE_URL="postgres://${SUPERUSER}:${SUPERUSER_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}"
-fi
+require_var SEARCH_PATH
 
-if [[ -z "${MIGRATOR_DATABASE_URL:-}" ]]; then
-  MIGRATOR_DATABASE_URL="postgres://${MIGRATOR_USER}:${MIGRATOR_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}"
-fi
+SUPER_DATABASE_URL="postgres://${SUPERUSER}:${SUPERUSER_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}"
 
-if [[ -z "${APP_DATABASE_URL:-}" ]]; then
-  APP_DATABASE_URL="postgres://${APP_USER}:${APP_USER_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}"
-fi
+MIGRATOR_DATABASE_URL="postgres://${MIGRATOR_USER}:${MIGRATOR_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}?${SEARCH_PATH}"
 
-if [[ -z "${TABLE_CREATOR_DATABASE_URL:-}" ]]; then
-  TABLE_CREATOR_DATABASE_URL="postgres://${TABLE_PROVISIONER_USER}:${TABLE_PROVISIONER_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}"
-fi
+APP_DATABASE_URL="postgres://${APP_USER}:${APP_USER_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}?${SEARCH_PATH}"
+
+TABLE_CREATOR_DATABASE_URL="postgres://${TABLE_PROVISIONER_USER}:${TABLE_PROVISIONER_PWD}@${DB_HOST}:${DB_PORT}/${APP_DB_NAME}?${SEARCH_PATH}"
 
 log_ok "Environment validated"
 
@@ -220,7 +211,7 @@ psql_super_db() {
 # -----------------------------------------------------------------------------
 log_info "Ensuring database exists via sqlx (superuser)"
 sqlx database create --database-url "${SUPER_DATABASE_URL}"
-log_ok "Database ensured: ${SUPER_DATABASE_URL}"
+log_ok "Database ensured"
 
 # -----------------------------------------------------------------------------
 # 2) Create LOGIN roles (as SUPERUSER) - these are actual DB users
@@ -279,13 +270,27 @@ log_ok "Runtime memberships granted"
 # -----------------------------------------------------------------------------
 # 6) Run normal app migrations as MIGRATOR_USER against migrations/
 # -----------------------------------------------------------------------------
-log_info "Running app migrations (db_migrator) from ./${APP_MIGRATIONS_PATH}/"
-if [[ "${DEBUG:-}" == "1" ]]; then
-  sqlx migrate run --no-dotenv --database-url "${MIGRATOR_DATABASE_URL}" --source "${APP_MIGRATIONS_PATH}"
+
+if [[ -n "${RUN_APP_MIGRATIONS:-}" ]]; then
+  log_info "Running app migrations (db_migrator) from ./${APP_MIGRATIONS_PATH}/"
+
+  if [[ "${DEBUG:-}" == "1" ]]; then
+    sqlx migrate run \
+      --no-dotenv \
+      --database-url "${MIGRATOR_DATABASE_URL}" \
+      --source "${APP_MIGRATIONS_PATH}"
+  else
+    sqlx migrate run \
+      --no-dotenv \
+      --database-url "${MIGRATOR_DATABASE_URL}" \
+      --source "${APP_MIGRATIONS_PATH}" \
+      >/dev/null
+  fi
+
+  log_ok "App migrations applied"
 else
-  sqlx migrate run --no-dotenv --database-url "${MIGRATOR_DATABASE_URL}" --source "${APP_MIGRATIONS_PATH}" >/dev/null
+  log_info "RUN_APP_MIGRATIONS not set; skipping app migrations"
 fi
-log_ok "App migrations applied"
 
 log_ok "Done"
 # log_info "Runtime connection string (app): ${APP_DATABASE_URL}"
