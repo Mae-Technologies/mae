@@ -21,6 +21,9 @@ impl TestContext {
         let schema = format!("test_{}", Uuid::new_v4().to_string().replace('-', ""));
         // Build a connection URL matching the container pool.
         let (host, port,) = postgres_host_port().await?;
+
+        // TODO: user / password needs to change to migrations.
+        // pre-migrations script needs to run.
         let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
 
         let mut conn =
@@ -102,6 +105,8 @@ async fn pool() -> Result<&'static PgPool,> {
             // Inner fallible init so we can use `?` and good error context.
             let init: Result<PgPool,> = async {
                 let (host, port,) = postgres_host_port().await?;
+                // TODO: user / password needs to change to migrations.
+                // pre-migrations script needs to run.
                 let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
 
                 let pool = PgPool::connect(&url,).await.context("failed to connect to postgres",)?;

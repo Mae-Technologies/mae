@@ -2,7 +2,6 @@
 REVOKE ALL ON FUNCTION app.apply_table_acl(TEXT, TEXT[], TEXT[]) FROM PUBLIC;
 
 -- Only allow the factory callers to adjust ACLs (per your requirement).
-GRANT EXECUTE ON FUNCTION app.apply_table_acl(TEXT, TEXT[], TEXT[]) TO db_migrator;
 GRANT EXECUTE ON FUNCTION app.apply_table_acl(TEXT, TEXT[], TEXT[]) TO app_owner;
 
 ALTER FUNCTION app.apply_table_acl(TEXT, TEXT[], TEXT[]) OWNER TO app_owner;
@@ -18,7 +17,6 @@ ALTER FUNCTION app.create_table_from_spec(jsonb) OWNER TO app_owner;
 
 -- Lock down audit trigger function (trigger-only; not callable by PUBLIC).
 REVOKE ALL ON FUNCTION app.audit_enforce_timestamps_and_immutables() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION app.audit_enforce_timestamps_and_immutables() TO db_migrator;
 GRANT EXECUTE ON FUNCTION app.audit_enforce_timestamps_and_immutables() TO app_owner;
 ALTER FUNCTION app.audit_enforce_timestamps_and_immutables() OWNER TO app_owner;
 

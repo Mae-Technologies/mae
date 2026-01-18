@@ -29,6 +29,10 @@
 
 set -eo pipefail
 
+is_debug() {
+  [[ "${DEBUG:-}" == "1" ]]
+}
+
 # -----------------------------------------------------------------------------
 # Logging helpers (emoji + two spaces)
 # -----------------------------------------------------------------------------
@@ -38,10 +42,23 @@ c_green="\033[32m"
 c_yellow="\033[33m"
 c_red="\033[31m"
 
-log_info() { echo -e "${c_blue}🧩  $*${c_reset}"; }
-log_ok() { echo -e "${c_green}✅  $*${c_reset}"; }
-log_warn() { echo -e "${c_yellow}⚠️  $*${c_reset}"; }
-log_error() { echo -e "${c_red}❌  $*${c_reset}"; }
+log_info() {
+  is_debug || return 0
+  echo -e "${c_blue}🧩  $*${c_reset}"
+}
+
+log_ok() {
+  echo -e "${c_green}✅  $*${c_reset}"
+}
+
+log_warn() {
+  is_debug || return 0
+  echo -e "${c_yellow}⚠️  $*${c_reset}"
+}
+
+log_err() {
+  echo -e "${c_red}❌  $*${c_reset}"
+}
 
 # -----------------------------------------------------------------------------
 # Load .env if present
@@ -75,6 +92,7 @@ fi
 # -----------------------------------------------------------------------------
 # Defaults (used only when not set by .env / environment)
 # -----------------------------------------------------------------------------
+# TODO: host needs to be a vairable to run testcontainers and runnable in prod
 DB_PORT="${DB_PORT:-2345}"
 APP_DB_NAME="${APP_DB_NAME:-test_mae}"
 
@@ -143,19 +161,6 @@ fi
 # -----------------------------------------------------------------------------
 # Quiet Postgres helpers (stdout suppressed; errors still shown)
 # -----------------------------------------------------------------------------
-psql_super() {
-  local sql="$1"
-  if [[ -n "${CONTAINER_NAME}" ]]; then
-    docker exec -i "${CONTAINER_NAME}" \
-      psql -U "${SUPERUSER}" -v ON_ERROR_STOP=1 -q -c "${sql}" \
-      1>/dev/null
-  else
-    PGPASSWORD="${SUPERUSER_PWD}" psql -h 127.0.0.1 -p "${DB_PORT}" -U "${SUPERUSER}" \
-      -v ON_ERROR_STOP=1 -q -c "${sql}" \
-      1>/dev/null
-  fi
-}
-
 psql_super_db() {
   local db="$1"
   local sql="$2"
@@ -192,6 +197,10 @@ BEGIN
     CREATE ROLE ${APP_USER} LOGIN PASSWORD '${APP_USER_PWD}';
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${MIGRATOR_USER}') THEN
+    CREATE ROLE ${MIGRATOR_USER} LOGIN PASSWORD '${MIGRATOR_PWD}';
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${TABLE_PROVISIONER_USER}') THEN
     CREATE ROLE ${TABLE_PROVISIONER_USER} LOGIN PASSWORD '${TABLE_PROVISIONER_PWD}';
   END IF;
@@ -214,6 +223,10 @@ BEGIN
 
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') THEN
     CREATE ROLE app_user NOLOGIN;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_migrator') THEN
+    CREATE ROLE app_migrator NOLOGIN;
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'table_creator') THEN
@@ -242,6 +255,8 @@ BEGIN
   
   -- Allow migrator to create objects only in app schema.
   GRANT USAGE, CREATE ON SCHEMA app TO db_migrator;
+
+  GRANT USAGE, CREATE ON SCHEMA app TO table_creator;
   
   -- Allow app_owner full use in app (already owns schema, but be explicit).
   GRANT USAGE, CREATE ON SCHEMA app TO app_owner;
@@ -258,12 +273,10 @@ log_info "public schema locked, app schema created"
 log_info "locking search_paths down"
 
 psql_super_db "$APP_DB_NAME" "
-ALTER ROLE ${MIGRATOR_USER} SET search_path = app, public;
+ALTER ROLE app_migrator SET search_path = app;
 ALTER ROLE app_owner SET search_path = app, public;
 ALTER ROLE app_user SET search_path = app;
-ALTER ROLE table_creator SET search_path = app, public;
-ALTER ROLE ${APP_USER} SET search_path = app;
-ALTER ROLE ${TABLE_PROVISIONER_USER} SET search_path = app;
+ALTER ROLE table_creator SET search_path = app;
 "
 log_ok "search_path locked down for roles"
 
@@ -271,32 +284,16 @@ log_ok "search_path locked down for roles"
 # 4) Run admin migrations as SUPERUSER against admin_migrations/
 # -----------------------------------------------------------------------------
 # This is where 01-05 live now (roles/functions/lockdowns).
-log_info "Running admin migrations (superuser) from ${ADMIN_MIGRATIONS_PATH}"
-sqlx migrate run --no-dotenv --database-url "${SUPER_DATABASE_URL}" --source "${ADMIN_MIGRATIONS_PATH}"
+log_info "Running admin migrations (superuser) from ./${ADMIN_MIGRATIONS_PATH}/"
+if [[ "${DEBUG:-}" == "1" ]]; then
+  sqlx migrate run --no-dotenv --database-url "${SUPER_DATABASE_URL}" --source "${ADMIN_MIGRATIONS_PATH}"
+else
+  sqlx migrate run --no-dotenv --database-url "${SUPER_DATABASE_URL}" --source "${ADMIN_MIGRATIONS_PATH}" >/dev/null
+fi
 log_ok "Admin migrations applied"
 
 # -----------------------------------------------------------------------------
-# 4.1) Allow db_migrator to read/write SQLx migration bookkeeping
-# -----------------------------------------------------------------------------
-log_info "Granting db_migrator access to SQLx bookkeeping table (_sqlx_migrations)"
-
-psql_super_db "${APP_DB_NAME}" "
--- The table is created/owned by the admin migration run (superuser).
--- The migrator must be able to SELECT/INSERT/UPDATE it to record applied migrations.
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public._sqlx_migrations TO ${MIGRATOR_USER};
-"
-
-log_ok "db_migrator can now write _sqlx_migrations"
-
-# -----------------------------------------------------------------------------
-# 5) Run normal app migrations as MIGRATOR_USER against migrations/
-# -----------------------------------------------------------------------------
-log_info "Running app migrations (db_migrator) from ${APP_MIGRATIONS_PATH}"
-sqlx migrate run --no-dotenv --database-url "${MIGRATOR_DATABASE_URL}" --source "${APP_MIGRATIONS_PATH}" --ignore-missing
-log_ok "App migrations applied"
-
-# -----------------------------------------------------------------------------
-# 6) Grant runtime memberships (superuser)
+# 5) Grant runtime memberships (superuser)
 # -----------------------------------------------------------------------------
 # These roles are expected to be created by admin_migrations:
 #   - app_user
@@ -304,10 +301,24 @@ log_ok "App migrations applied"
 log_info "Granting runtime role memberships (superuser)"
 psql_super_db "${APP_DB_NAME}" "GRANT app_user TO ${APP_USER};"
 psql_super_db "${APP_DB_NAME}" "GRANT table_creator TO ${TABLE_PROVISIONER_USER};"
+psql_super_db "${APP_DB_NAME}" "GRANT app_migrator TO ${MIGRATOR_USER};"
+# NOTE: we also want the migrator to have the same priviledges as the app_user (IE - USAGE)
+psql_super_db "${APP_DB_NAME}" "GRANT app_user TO ${MIGRATOR_USER};"
 log_ok "Runtime memberships granted"
 
+# -----------------------------------------------------------------------------
+# 6) Run normal app migrations as MIGRATOR_USER against migrations/
+# -----------------------------------------------------------------------------
+log_info "Running app migrations (db_migrator) from ./${APP_MIGRATIONS_PATH}/"
+if [[ "${DEBUG:-}" == "1" ]]; then
+  sqlx migrate run --no-dotenv --database-url "${MIGRATOR_DATABASE_URL}" --source "${APP_MIGRATIONS_PATH}"
+else
+  sqlx migrate run --no-dotenv --database-url "${MIGRATOR_DATABASE_URL}" --source "${APP_MIGRATIONS_PATH}" >/dev/null
+fi
+log_ok "App migrations applied"
+
 log_ok "Done"
-log_info "Runtime connection string (app): ${APP_DATABASE_URL}"
-log_info "Provisioning connection string (optional): ${TABLE_CREATOR_DATABASE_URL}"
-log_info "Migrator connection string (app migrations): ${MIGRATOR_DATABASE_URL}"
-log_info "Admin connection string (admin migrations): ${SUPER_DATABASE_URL}"
+# log_info "Runtime connection string (app): ${APP_DATABASE_URL}"
+# log_info "Provisioning connection string (optional): ${TABLE_CREATOR_DATABASE_URL}"
+# log_info "Migrator connection string (app migrations): ${MIGRATOR_DATABASE_URL}"
+# log_info "Admin connection string (admin migrations): ${SUPER_DATABASE_URL}"

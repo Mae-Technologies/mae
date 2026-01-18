@@ -35,6 +35,11 @@ BEGIN
       RAISE EXCEPTION 'created_by is immutable';
     END IF;
 
+    -- updated_by needs to be updated at each update
+    IF NEW.updated_by IS NOT DISTINCT FROM OLD.updated_by THEN
+      RAISE EXCEPTION 'updated_by must be updated';
+    END IF;
+
     -- Always bump updated_at on any update.
     NEW.updated_at := now();
     RETURN NEW;
