@@ -1,10 +1,10 @@
 
-SECURITY DEFINER
-SET search_path = publicBEGIN;
-SELECT create_table(
-  'repoexample',
-  '
-  value INTEGER NOT NULL,
-  string_value TEXT NOT NULL,
-  ');
-COMMIT;
+SELECT app.create_table_from_spec(
+'{
+  "table_name": "repoexample",
+  "columns": [
+    { "name": "string_value", "type": "text"},
+    { "name": "value", "type": "int4"}
+  ]
+}
+  '::jsonb);

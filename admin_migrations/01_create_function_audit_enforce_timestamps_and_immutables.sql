@@ -5,9 +5,10 @@
 --   - INSERT: updated_at is set to now() (created_at default applies).
 --   - UPDATE: updated_at is set to now().
 --   - UPDATE: id, sys_client, created_at, created_by are immutable (cannot change).
-CREATE OR REPLACE FUNCTION public.audit_enforce_timestamps_and_immutables()
+CREATE OR REPLACE FUNCTION app.audit_enforce_timestamps_and_immutables()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
 AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
