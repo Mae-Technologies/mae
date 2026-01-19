@@ -21,8 +21,8 @@ BEGIN
   END IF;
 
 -- Allow SQLx bookkeeping DDL for migrator role membership (robust: uses object identity)
-IF (invoker_role = 'db_migrator'
-    OR pg_has_role(invoker_role, 'app_migrator', 'member'))
+IF 
+   pg_has_role(invoker_role, 'app_migrator', 'member')
    AND TG_TAG IN ('CREATE TABLE', 'ALTER TABLE', 'CREATE INDEX')
    AND EXISTS (
      SELECT 1
@@ -36,13 +36,12 @@ THEN
   RETURN;
 END IF;
 
-  -- Block direct table creation and common DDL for non-privileged effective roles
+  -- Block direct CREATE/DROP for non-privileged effective roles
   IF TG_TAG IN (
     'CREATE TABLE',
     'CREATE TABLE AS',
     'SELECT INTO',
     'CREATE SEQUENCE',
-    'ALTER TABLE',
     'DROP TABLE',
     'DROP SEQUENCE'
   ) THEN
@@ -51,21 +50,32 @@ END IF;
       TG_TAG, invoker_role, q;
   END IF;
 
-  IF q !~* '\malter\s+table\s+app\.' THEN
-    RETURN;
+  -- Handle ALTER TABLE separately
+  IF TG_TAG = 'ALTER TABLE' THEN
+    -- Optional: if you only care about app schema, gate on object identity instead of regex.
+    -- If you keep the regex, do the protected column checks BEFORE raising.
+
+    IF q ~* '\malter\s+table\s+app\.' THEN
+      -- protected column checks here (drop/rename)
+    FOREACH col IN ARRAY protected_cols LOOP
+      IF q ~* format('\mdrop\s+column\s+(if\s+exists\s+)?%I\b', col) THEN
+        RAISE EXCEPTION 'DDL blocked: cannot DROP protected column "%" on app tables', col;
+      END IF;
+    END LOOP;
+
+    FOREACH col IN ARRAY protected_cols LOOP
+      IF q ~* format('\mrename\s+column\s+%I\s+to\b', col) THEN
+        RAISE EXCEPTION 'DDL blocked: cannot RENAME protected column "%" on app tables', col;
+      END IF;
+    END LOOP;
+      END IF;
+
+    -- Then block any ALTER TABLE regardless (since you want DDL via elevated functions)
+    RAISE EXCEPTION
+      'DDL "%": not allowed for role "%". query: "%". Use elevated functions.',
+      TG_TAG, invoker_role, q;
   END IF;
 
-  FOREACH col IN ARRAY protected_cols LOOP
-    IF q ~* format('\mdrop\s+column\s+(if\s+exists\s+)?%I\b', col) THEN
-      RAISE EXCEPTION 'DDL blocked: cannot DROP protected column "%" on app tables', col;
-    END IF;
-  END LOOP;
-
-  FOREACH col IN ARRAY protected_cols LOOP
-    IF q ~* format('\mrename\s+column\s+%I\s+to\b', col) THEN
-      RAISE EXCEPTION 'DDL blocked: cannot RENAME protected column "%" on app tables', col;
-    END IF;
-  END LOOP;
 END;
 $$;
 

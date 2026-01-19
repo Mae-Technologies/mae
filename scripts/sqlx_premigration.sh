@@ -220,10 +220,6 @@ log_info "Ensuring LOGIN roles exist (superuser)"
 psql_super_db "${APP_DB_NAME}" "
 DO \$\$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${MIGRATOR_USER}') THEN
-    CREATE ROLE ${MIGRATOR_USER} LOGIN PASSWORD '${MIGRATOR_PWD}';
-  END IF;
-
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${APP_USER}') THEN
     CREATE ROLE ${APP_USER} LOGIN PASSWORD '${APP_USER_PWD}';
   END IF;
@@ -259,13 +255,26 @@ log_ok "Admin migrations applied"
 #   - app_user
 #   - table_creator
 #   - migrator_user
-log_info "Granting runtime role memberships (superuser)"
+log_info "Granting role memberships"
 psql_super_db "${APP_DB_NAME}" "GRANT app_user TO ${APP_USER};"
 psql_super_db "${APP_DB_NAME}" "GRANT table_creator TO ${TABLE_PROVISIONER_USER};"
 psql_super_db "${APP_DB_NAME}" "GRANT app_migrator TO ${MIGRATOR_USER};"
-# NOTE: we also want the migrator to have the same priviledges as the app_user (IE - USAGE)
+# NOTE: we also want the migrator + table_creator to have the same priviledges as the app_user (IE - USAGE)
 psql_super_db "${APP_DB_NAME}" "GRANT app_user TO ${MIGRATOR_USER};"
-log_ok "Runtime memberships granted"
+psql_super_db "${APP_DB_NAME}" "GRANT app_user TO ${TABLE_PROVISIONER_USER};"
+log_ok "Memberships granted"
+
+# -----------------------------------------------------------------------------
+# 6) Set scopes / search_path to roles
+# -----------------------------------------------------------------------------
+log_info "Setting search_path / scope to roles"
+psql_super_db "${APP_DB_NAME}" "
+  -- Set search_path
+  ALTER ROLE ${MIGRATOR_USER} SET search_path = app;
+  ALTER ROLE ${TABLE_PROVISIONER_USER} SET search_path = app;
+  ALTER ROLE ${APP_USER} SET search_path = app;
+"
+log_ok "Search_path's set"
 
 # -----------------------------------------------------------------------------
 # 6) Run normal app migrations as MIGRATOR_USER against migrations/

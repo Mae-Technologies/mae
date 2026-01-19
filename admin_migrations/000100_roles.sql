@@ -23,19 +23,16 @@ BEGIN
   REVOKE CREATE ON SCHEMA public FROM PUBLIC;
   -- Only revoke from a role if you actually have that role; using app_migrator here for consistency
   REVOKE CREATE ON SCHEMA public FROM app_migrator;
+  REVOKE CREATE ON SCHEMA public FROM table_creator;
+  REVOKE CREATE ON SCHEMA public FROM app_user;
+  REVOKE CREATE ON SCHEMA app FROM PUBLIC;
 
   -- Allow migrator / table creator to create in app schema
+  GRANT USAGE, CREATE ON SCHEMA app TO app_owner;
+  -- see block_disallowed_ddl function sql for details.
   GRANT USAGE, CREATE ON SCHEMA app TO app_migrator;
   GRANT USAGE, CREATE ON SCHEMA app TO table_creator;
 
-  -- Be explicit
-  GRANT USAGE, CREATE ON SCHEMA app TO app_owner;
   GRANT USAGE ON SCHEMA app TO app_user;
-
-  -- Set search_path
-  ALTER ROLE app_owner SET search_path = app, public;
-  ALTER ROLE app_migrator SET search_path = app;
-  ALTER ROLE app_user SET search_path = app;
-  ALTER ROLE table_creator SET search_path = app;
 END
 $$;

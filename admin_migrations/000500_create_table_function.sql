@@ -45,10 +45,13 @@ DECLARE
   insertable_extras text[] := ARRAY[]::text[];
   updatable_extras  text[] := ARRAY[]::text[];
 BEGIN
--- NOTE: SECURITY DEFINER means current_user == function owner (app_owner).
--- Use session_user to identify the invoker.
-IF session_user NOT IN ('db_migrator', 'app_owner') THEN
-  RAISE EXCEPTION 'create_table_from_spec may only be invoked by db_migrator or app_owner';
+-- Allow any LOGIN role that is a member of table_creator or app_migrator.
+IF NOT pg_has_role(session_user, 'table_creator', 'member')
+   AND NOT pg_has_role(session_user, 'app_migrator', 'member')
+   AND session_user NOT IN ('app_owner', 'postgres') THEN
+  RAISE EXCEPTION
+    'create_table_from_spec may only be invoked by app_migrator or table_creator (or app_owner). session_user=%',
+    session_user;
 END IF;
   ---------------------------------------------------------------------------
   -- 1) Validate presence and type of required keys

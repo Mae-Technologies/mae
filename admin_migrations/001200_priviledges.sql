@@ -3,6 +3,8 @@ REVOKE ALL ON FUNCTION app.apply_table_acl(TEXT, TEXT[], TEXT[]) FROM PUBLIC;
 
 -- Only allow the factory callers to adjust ACLs (per your requirement).
 GRANT EXECUTE ON FUNCTION app.apply_table_acl(TEXT, TEXT[], TEXT[]) TO app_owner;
+GRANT EXECUTE ON FUNCTION app.apply_table_acl(TEXT, TEXT[], TEXT[]) TO app_migrator;
+GRANT EXECUTE ON FUNCTION app.apply_table_acl(TEXT, TEXT[], TEXT[]) TO table_creator;
 
 ALTER FUNCTION app.apply_table_acl(TEXT, TEXT[], TEXT[]) OWNER TO app_owner;
 
@@ -10,8 +12,9 @@ ALTER FUNCTION app.apply_table_acl(TEXT, TEXT[], TEXT[]) OWNER TO app_owner;
 REVOKE ALL ON FUNCTION app.create_table_from_spec(jsonb) FROM PUBLIC;
 
 -- Factory can be invoked only by migrator + app_owner.
-GRANT EXECUTE ON FUNCTION app.create_table_from_spec(jsonb) TO db_migrator;
 GRANT EXECUTE ON FUNCTION app.create_table_from_spec(jsonb) TO app_owner;
+GRANT EXECUTE ON FUNCTION app.create_table_from_spec(jsonb) TO app_migrator;
+GRANT EXECUTE ON FUNCTION app.create_table_from_spec(jsonb) TO table_creator;
 
 ALTER FUNCTION app.create_table_from_spec(jsonb) OWNER TO app_owner;
 
