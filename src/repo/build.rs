@@ -111,6 +111,8 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
         self.filters.append(&mut values,);
         self
     }
+    // TODO: maybe returning isn't a feature that we want; we always return the struct, cannot return
+    // a custom set of rows.
     pub fn returning(mut self, values: Vec<F,>,) -> Self {
         self.returning = Some(values,);
         self
