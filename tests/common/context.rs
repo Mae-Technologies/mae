@@ -281,4 +281,6 @@ mod test_context {
 
         Ok((),)
     }
+    // TODO: testing the db should be done (DDL, DML, limits) -> dont to this in rust, create a
+    // script to run tests with the pgtap extension.
 }

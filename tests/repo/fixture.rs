@@ -33,8 +33,6 @@ pub fn gen_insert_row() -> InsertRow {
         comment: None,
         tags: SqlxJson::Array(vec![],),
         sys_detail: SqlxJson::Object(Map::new(),),
-        // TODO: _by should be created dynamically with ctx, _at created dynamically with now()
-        created_by: 1,
     }
 }
 
@@ -46,8 +44,6 @@ pub fn gen_update_row() -> UpdateRow {
         comment: Some(None,),
         tags: Some(SqlxJson::Array(vec![],),),
         sys_detail: Some(SqlxJson::Object(Map::new(),),),
-        // TODO: _by should be created dynamically with ctx, _at created dynamically with now()),
-        updated_by: Some(1,),
     }
 }
 

@@ -1,6 +1,6 @@
 use super::type_def::{ToField, ToInsertRow, ToPatch, ToUpdateRow};
 use sqlx::Arguments;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 // /////
 // INTERNAL: CONVERT THE BUILDER PARTS TO SQL
 // /////
@@ -89,6 +89,29 @@ impl<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> BindArgs
     }
 }
 
+impl<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> Debug for SqlStatement<I, U, F, P,> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_,>,) -> std::fmt::Result {
+        match self {
+            SqlStatement::Select(fields,) => {
+                // no fields to write
+                std::fmt::Result::Ok((),)
+            }
+            SqlStatement::InsertOne(row,) => std::fmt::Debug::fmt(&row, f,),
+            SqlStatement::InsertMany(row,) => {
+                todo!()
+            }
+            SqlStatement::Update(row,) => std::fmt::Debug::fmt(&row, f,),
+            SqlStatement::Patch(fields,) => {
+                for (i, field,) in fields.iter().enumerate() {
+                    write!(f, "\n\t${} = ", i + 1)?;
+                    std::fmt::Debug::fmt(field, f,)?;
+                }
+                std::fmt::Result::Ok((),)
+            }
+        }
+    }
+}
+
 // Filter / Where block of the Query
 pub enum Filter {
     Equals(i32,),
@@ -119,7 +142,7 @@ impl BindArgs for Filter {
             Self::NotLike(v,) => args.add(v,),
             Self::Ilike(v,) => args.add(v,),
             Self::NotIlike(v,) => args.add(v,),
-            Self::StringIs(v,) => args.add(v,),
+            Self::StringIs(v,) => args.add(v.to_owned(),),
             Self::StringIsNot(v,) => args.add(v,),
             Self::Gt(v,) => args.add(v,),
             Self::Gte(v,) => args.add(v,),
@@ -129,7 +152,32 @@ impl BindArgs for Filter {
         };
     }
     fn bind_len(&self,) -> usize {
-        1
+        match self {
+            Self::IsNull => 0,
+            _ => 1,
+        }
+    }
+}
+
+impl std::fmt::Debug for Filter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_,>,) -> std::fmt::Result {
+        match self {
+            Self::Equals(v,) => write!(f, "{:?}", v),
+            Self::NotEquals(v,) => write!(f, "{:?}", v),
+            Self::In(v,) => write!(f, "{:?}", v),
+            Self::NotIn(v,) => write!(f, "{:?}", v),
+            Self::Like(v,) => write!(f, "{:?}", v),
+            Self::NotLike(v,) => write!(f, "{:?}", v),
+            Self::Ilike(v,) => write!(f, "{:?}", v),
+            Self::NotIlike(v,) => write!(f, "{:?}", v),
+            Self::StringIs(v,) => write!(f, "{:?}", v),
+            Self::StringIsNot(v,) => write!(f, "{:?}", v),
+            Self::Gt(v,) => write!(f, "{:?}", v),
+            Self::Gte(v,) => write!(f, "{:?}", v),
+            Self::Lt(v,) => write!(f, "{:?}", v),
+            Self::Lte(v,) => write!(f, "{:?}", v),
+            Self::IsNull => Ok((),),
+        }
     }
 }
 
@@ -172,6 +220,16 @@ impl<F: ToField,> Display for FilterOp<F,> {
     }
 }
 
+impl<F: ToField,> Debug for FilterOp<F,> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_,>,) -> std::fmt::Result {
+        match self {
+            FilterOp::Begin(_, cond,) => write!(f, "{:?}", cond),
+            FilterOp::And(_, cond,) => write!(f, "{:?}", cond),
+            FilterOp::Or(_, cond,) => write!(f, "{:?}", cond),
+        }
+    }
+}
+
 impl<F: ToField,> BindArgs for FilterOp<F,> {
     fn bind(&self, args: &mut sqlx::postgres::PgArguments,) {
         match self {
@@ -201,14 +259,22 @@ pub fn sql_where<F: ToField,>(
         None => "".into(),
     };
 
+    let mut f_idx = 0;
     let whr = w
         .iter()
-        .zip(1..,)
-        .map(|(f, i,)| format!("{}{} ${}", update_batch_ref_table, f, i + idx),)
+        .map(|f| match f {
+            FilterOp::Or(c, v,) | FilterOp::And(c, v,) | FilterOp::Begin(c, v,) => match v {
+                Filter::IsNull => format!("\n\t{}{}", update_batch_ref_table, f,),
+                _ => {
+                    f_idx += f.bind_len();
+                    format!("\n\t{}{} ${}", update_batch_ref_table, f, f_idx + idx)
+                }
+            },
+        },)
         .collect::<Vec<_,>>()
         .join(" ",);
     if !whr.is_empty() {
-        return format!(" WHERE {}", whr);
+        return format!("\nWHERE{}", whr);
     }
     whr
 }

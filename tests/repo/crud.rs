@@ -44,7 +44,7 @@ async fn should_insert() -> Result<(),> {
 
     let data = fixture::gen_insert_row(); // let data = RepoExample {
     // };
-    let builder = fixture::RepoExample::insert_one(&ctx, data,);
+    let mut builder = fixture::RepoExample::insert_one(&ctx, data,);
 
     let res = builder.fetch_all(&mut *tx,).await?;
 
@@ -80,17 +80,16 @@ async fn should_get_records() -> Result<(),> {
 
     let data = fixture::gen_insert_row();
 
-    let builder = fixture::RepoExample::insert_one(&ctx, data,);
+    let mut builder = fixture::RepoExample::insert_one(&ctx, data.clone(),);
 
     let res = builder.fetch_all(&mut *tx,).await?;
 
     must_eq(res[0].string_value.as_str(), "hello_world",);
 
-    let builder = fixture::RepoExample::select(&ctx, vec![Field::All],);
-    // Vjfilter(vec![FilterOp::Begin(
-    //     Field::string_value,
-    //     Filter::Ilike("%hello%".to_string()),
-    // )]);
+    let mut builder = fixture::RepoExample::select(&ctx, vec![Field::All],).filter(vec![
+        FilterOp::Begin(Field::string_value, Filter::StringIs(data.string_value.clone(),),),
+        FilterOp::And(Field::value, Filter::Equals(1,),),
+    ],);
 
     let res = builder.fetch_all(&mut *tx,).await?;
 
@@ -105,11 +104,11 @@ async fn should_error_on_update_without_filters() -> Result<(),> {
     let mut tx = ctx.db_pool.begin().await?;
 
     let data = fixture::gen_update_row();
-    let builder = fixture::RepoExample::update_many(&ctx, data,);
+    let mut builder = fixture::RepoExample::update_many(&ctx, data,);
 
     let res = builder.fetch_all(&mut *tx,).await;
-    //
     res.err().must();
+    // TODO: this should error, but the error message should also be checked.
     Ok((),)
 }
 
@@ -126,15 +125,13 @@ async fn should_error_on_update_with_row_fields_all_none() -> Result<(),> {
         comment: None,
         tags: None,
         sys_detail: None,
-        // TODO: _by should be created dynamically with ctx, _at created dynamically with now()
-        updated_by: None,
     };
     let mut builder = fixture::RepoExample::update_many(&ctx, data,);
     builder = builder
         .filter(vec![FilterOp::Begin(Field::string_value, Filter::Like("hello_world".into(),),)],);
 
     let res = builder.fetch_all(&mut *tx,).await;
-    //
+    // TODO: this should error, but the error message should also be checked.
     res.err().must();
     Ok((),)
 }
@@ -155,6 +152,7 @@ async fn should_update() -> Result<(),> {
 
     let _res = builder.fetch_all(&mut *tx,).await?;
 
+    // TODO: the result should match the input
     Ok((),)
 }
 
@@ -165,7 +163,7 @@ async fn should_error_on_patch_without_filters() -> Result<(),> {
     let mut tx = ctx.db_pool.begin().await?;
 
     let data = fixture::gen_patches();
-    let builder = fixture::RepoExample::patch(&ctx, data,);
+    let mut builder = fixture::RepoExample::patch(&ctx, data,);
 
     let res = builder.fetch_all(&mut *tx,).await;
     //
@@ -215,5 +213,6 @@ async fn should_patch() -> Result<(),> {
 
     let _res = builder.fetch_all(&mut *tx,).await?;
 
+    // TODO: the result should match the input
     Ok((),)
 }
