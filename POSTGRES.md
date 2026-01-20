@@ -9,7 +9,49 @@ This directory (`admin_migrations/`) installs a **database-enforced** security m
 The important thing to internalize: **your app user does not get DDL or broad UPDATE**, and “what’s writable” is controlled both by **GRANTs** *and* by **triggers**.
 
 ---
+## Summary
 
+* **Production DB is locked down by design**:
+  No runtime DDL, no schema creation, no ad-hoc grants. All schema changes must go through `SECURITY DEFINER` functions owned by `app_owner`.
+
+* **Roles model**:
+
+  * `app_user`: the **only source of DML** (SELECT/INSERT/UPDATE) on app tables.
+  * `db_migrator` and `table_provisioner`: LOGIN roles that **inherit `app_user`**, so they can do the same DML as the app.
+  * `app_migrator` and `table_creator`: **capability roles only** (function execution, event-trigger exceptions), not DML principals.
+  * Hygiene: revoke table privileges from `app_migrator` / `table_creator`; effective DML always comes from `app_user`.
+
+* **DDL enforcement**:
+
+  * An event trigger (`block_disallowed_ddl`) blocks `CREATE/DROP/ALTER` unless executed as `app_owner` (i.e., via `SECURITY DEFINER`).
+  * SQLx bookkeeping on `_sqlx_migrations` is explicitly allowed.
+  * Result: migrator/provisioner must use elevated functions like `create_table_from_spec` / `apply_table_acl`.
+
+* **Enums & schemas**:
+
+  * `status` enum was moved from `public` to `app` to avoid `search_path` issues.
+  * Prefer schema-qualified types (`app.status`) or ensure `search_path = app, public`.
+
+* **Testing strategy (code-only, prod-identical DB)**:
+
+  * **Do not** create per-test schemas or change grants.
+  * Use **per-test transactions + rollback** for isolation.
+  * Set `SET LOCAL search_path = app, public` inside the transaction.
+  * Refactor DB code to accept `impl sqlx::Executor<'_>` so it works with pools, connections, or transactions.
+
+* **SQLx gotcha**:
+
+  * `Transaction` itself is not an `Executor`; pass `&mut *tx` (or `tx.as_mut()`), not `&mut tx`.
+  * Don’t create transactions inline; bind them to a variable.
+
+* **Net result**:
+
+  * Tests run independently.
+  * Database stays identical to production.
+  * All DDL flows through audited, controlled functions.
+  * DML authority is centralized in `app_user`.
+
+---
 ## Roles and responsibilities (what SQL actually enforces)
 
 ### `app_owner` (NOLOGIN)

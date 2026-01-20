@@ -1,4 +1,4 @@
-use super::type_def::{ToField, ToPatch, ToRow};
+use super::type_def::{ToField, ToInsertRow, ToPatch, ToUpdateRow};
 use sqlx::Arguments;
 use std::fmt::Display;
 // /////
@@ -39,7 +39,7 @@ pub fn concat_sql_parts(parts: Vec<(Vec<String,>, Option<Vec<String,>,>,),>,) ->
 }
 
 // SQL Statements
-pub enum SqlStatement<R: ToRow, F: ToField, P: ToPatch,> {
+pub enum SqlStatement<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> {
     // TODO: I want an upsert() in here -> Insert, Update on conflict:
     // INSERT INTO users (email, name)
     // VALUES
@@ -51,13 +51,15 @@ pub enum SqlStatement<R: ToRow, F: ToField, P: ToPatch,> {
     //   updated_at = now()
     // RETURNING *;
     Select(Vec<F,>,),
-    InsertOne(R,),
-    InsertMany(Vec<R,>,),
-    Update(R,),
+    InsertOne(I,),
+    InsertMany(Vec<I,>,),
+    Update(U,),
     Patch(Vec<P,>,),
 }
 
-impl<R: ToRow, F: ToField, P: ToPatch,> BindArgs for SqlStatement<R, F, P,> {
+impl<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> BindArgs
+    for SqlStatement<I, U, F, P,>
+{
     // Bind the Statement values to the query
     // (Ie - Struct{value: 1} or Enum::value(1)) -> iter.v / v -> PgArguments.add(v)
     fn bind(&self, args: &mut sqlx::postgres::PgArguments,) {
@@ -77,7 +79,8 @@ impl<R: ToRow, F: ToField, P: ToPatch,> BindArgs for SqlStatement<R, F, P,> {
     // Get the count of arg's that are to be bound
     fn bind_len(&self,) -> usize {
         match self {
-            Self::Update(v,) | Self::InsertOne(v,) => v.bind_len(),
+            Self::Update(v,) => v.bind_len(),
+            Self::InsertOne(v,) => v.bind_len(),
             // NOTE: There are no bindings for select statements
             Self::Select(_,) => 0,
             Self::InsertMany(v,) => v.iter().map(|v| v.bind_len(),).sum(),

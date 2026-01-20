@@ -14,6 +14,7 @@ BEGIN
   IF TG_OP = 'INSERT' THEN
     -- Always stamp updated_at at insert time (created_at already has a DEFAULT).
     NEW.updated_at := now();
+    NEW.updated_by := NEW.created_by;
     RETURN NEW;
   END IF;
 
@@ -36,7 +37,7 @@ BEGIN
     END IF;
 
     -- updated_by needs to be updated at each update
-    IF NEW.updated_by IS NOT DISTINCT FROM OLD.updated_by THEN
+    IF NEW.updated_by IS NULL THEN
       RAISE EXCEPTION 'updated_by must be updated';
     END IF;
 

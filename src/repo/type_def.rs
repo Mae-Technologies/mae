@@ -9,9 +9,13 @@ use std::fmt::Display;
 pub trait Context: ContextAccessor + Unpin + Send + Sync {}
 impl<C,> Context for C where C: ContextAccessor + Unpin + Send + Sync {}
 
-// SOMETHING THAT WILL CONVERT TO A ROW -> T
-pub trait ToRow: ToSqlParts + BindArgs {}
-impl<R,> ToRow for R where R: ToSqlParts + BindArgs {}
+// SOMETHING THAT WILL CONVERT TO AN Insertable ROW -> T
+pub trait ToInsertRow: ToSqlParts + BindArgs {}
+impl<I,> ToInsertRow for I where I: ToSqlParts + BindArgs {}
+
+// SOMETHING THAT WILL CONVERT TO AN Updatable ROW -> T
+pub trait ToUpdateRow: ToSqlParts + BindArgs {}
+impl<U,> ToUpdateRow for U where U: ToSqlParts + BindArgs {}
 
 // SOMETHING THAT WILL CONVERT TO A FIELD -> F
 pub trait ToField: ToSqlParts + Display {}
