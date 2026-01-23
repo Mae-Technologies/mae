@@ -14,8 +14,11 @@ test-requires-docker = []
 [profile.test]
 panic = "unwind"
 
+[patch."https://github.com/MrCartaaa/mae_macros"]
+mae_macros = { path = "../macros"}
+
 [dependencies]
-mae_macros = {path = "../macros"}
+mae_macros = { git = "https://github.com/MrCartaaa/mae_macros", branch = "main"}
 chrono = { version = "0.4.43", features = ["serde"] }
 serde_json = "1.0.149"
 sqlx = { version = "0.8.6", default-features = false, features = ["chrono", "macros", "postgres", "runtime-async-std"] }
