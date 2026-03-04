@@ -61,7 +61,11 @@ impl TypedSession {
     }
 
     pub fn insert_session(&self, session_data: Session,) -> Result<(), SessionInsertError,> {
-        self.0.insert(Self::SESSION_KEY, session_data,)
+        // Store only the user_id integer — `get_session` reads entries() and calls
+        // `.parse::<i32>()` on the raw string value.  Storing the whole Session
+        // struct produces `{"user_id":N}` which cannot be parsed as i32, causing
+        // every guarded route to return 401 after a successful /auth/session.
+        self.0.insert(Self::SESSION_KEY, session_data.user_id,)
     }
 
     pub fn get_session(&self,) -> Result<Option<Session,>, SessionGetError,> {
