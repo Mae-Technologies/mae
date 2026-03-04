@@ -2,13 +2,15 @@
 // if something errors when using this crate, look into it.
 pub mod build;
 pub mod configuration;
+mod app;
 mod run;
 pub use run::*;
+pub use app::*;
 
 pub mod prelude {
     pub use crate::app::build::{App, ApplicationBaseUrl, HmacSecret, Run};
     pub use crate::app::run::run;
-    pub use crate::middleware::get_session;
+    pub use crate::middleware::{get_service_session, get_session};
     pub use mae_macros::*;
 
     pub use actix_web::dev::Server;
