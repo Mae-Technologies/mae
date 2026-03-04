@@ -11,7 +11,9 @@ use super::type_def::{Context, QueryAs, ToField, ToPatch, ToRow};
 // INTERFACE TO THE SCHEMA def
 //  ////
 
-pub trait Build<C: Context, R: ToRow, U: ToRow, F: ToField, P: ToPatch,>: QueryAs + KeyAuths<F,> {
+pub trait Build<C: Context, R: ToRow, U: ToRow, F: ToField, P: ToPatch,>:
+    QueryAs + KeyAuths<F,>
+{
     // Get a builder so we can build some SQL
     fn build_insert(statement: SqlStatement<R, U, F, P,>,) -> Builder<C, Self, R, U, F, P,> {
         Builder::<C, Self, R, U, F, P,> {
@@ -39,7 +41,9 @@ pub trait KeyAuths<F: ToField,> {
 // Expose methods to the user defined struct
 // _ctx in the methods is for a future feature
 // TODO: impl ctx
-pub trait Interface<C: Context, R: ToRow, U: ToRow, F: ToField, P: ToPatch,>: Build<C, R, U, F, P,> {
+pub trait Interface<C: Context, R: ToRow, U: ToRow, F: ToField, P: ToPatch,>:
+    Build<C, R, U, F, P,>
+{
     fn insert_one(_ctx: &C, rec: R,) -> Builder<C, Self, R, U, F, P,> {
         Self::build_insert(SqlStatement::<R, U, F, P,>::InsertOne(rec,),)
     }
@@ -60,8 +64,8 @@ pub trait Interface<C: Context, R: ToRow, U: ToRow, F: ToField, P: ToPatch,>: Bu
 }
 
 // Anything that implements Build `B` implements the Interface
-impl<C: Context, R: ToRow, U: ToRow, F: ToField, P: ToPatch, B: Build<C, R, U, F, P,>,> Interface<C, R, U, F, P,>
-    for B
+impl<C: Context, R: ToRow, U: ToRow, F: ToField, P: ToPatch, B: Build<C, R, U, F, P,>,>
+    Interface<C, R, U, F, P,> for B
 {
 }
 
@@ -87,7 +91,9 @@ pub struct Builder<C: Context, A: QueryAs, R: ToRow, U: ToRow, F: ToField, P: To
 }
 
 // expose build methods with the *Builder Pattern*
-impl<C: Context, A: QueryAs, R: ToRow, U: ToRow, F: ToField, P: ToPatch,> Builder<C, A, R, U, F, P,> {
+impl<C: Context, A: QueryAs, R: ToRow, U: ToRow, F: ToField, P: ToPatch,>
+    Builder<C, A, R, U, F, P,>
+{
     // add filters to the query
     pub fn filter(mut self, mut values: Vec<FilterOp<F,>,>,) -> Self {
         self.filters.append(&mut values,);
@@ -296,7 +302,8 @@ pub trait Execute<C: Context, A: QueryAs, R: ToRow, U: ToRow, F: ToField, P: ToP
 }
 
 // Display the SQL to the user.
-impl<C: Context, A: QueryAs, R: ToRow, U: ToRow, F: ToField, P: ToPatch,> Display for Builder<C, A, R, U, F, P,>
+impl<C: Context, A: QueryAs, R: ToRow, U: ToRow, F: ToField, P: ToPatch,> Display
+    for Builder<C, A, R, U, F, P,>
 where
     Self: ToSql<R, U, F, P,>,
 {
