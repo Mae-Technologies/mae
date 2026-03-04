@@ -11,10 +11,10 @@ use super::type_def::{Context, QueryAs, ToField, ToPatch, ToRow};
 // INTERFACE TO THE SCHEMA def
 //  ////
 
-pub trait Build<C: Context, R: ToRow, F: ToField, P: ToPatch,>: QueryAs + KeyAuths<F,> {
+pub trait Build<C: Context, R: ToRow, U: ToRow, F: ToField, P: ToPatch,>: QueryAs + KeyAuths<F,> {
     // Get a builder so we can build some SQL
-    fn build(statement: SqlStatement<R, F, P,>,) -> Builder<C, Self, R, F, P,> {
-        Builder::<C, Self, R, F, P,> {
+    fn build_insert(statement: SqlStatement<R, U, F, P,>,) -> Builder<C, Self, R, U, F, P,> {
+        Builder::<C, Self, R, U, F, P,> {
             statement,
             filters: Self::keys(),
             schema: Self::schema(),
@@ -39,28 +39,28 @@ pub trait KeyAuths<F: ToField,> {
 // Expose methods to the user defined struct
 // _ctx in the methods is for a future feature
 // TODO: impl ctx
-pub trait Interface<C: Context, R: ToRow, F: ToField, P: ToPatch,>: Build<C, R, F, P,> {
-    fn insert_one(_ctx: &C, rec: R,) -> Builder<C, Self, R, F, P,> {
-        Self::build(SqlStatement::<R, F, P,>::InsertOne(rec,),)
+pub trait Interface<C: Context, R: ToRow, U: ToRow, F: ToField, P: ToPatch,>: Build<C, R, U, F, P,> {
+    fn insert_one(_ctx: &C, rec: R,) -> Builder<C, Self, R, U, F, P,> {
+        Self::build_insert(SqlStatement::<R, U, F, P,>::InsertOne(rec,),)
     }
 
-    fn insert_many(_ctx: &C, recs: Vec<R,>,) -> Builder<C, Self, R, F, P,> {
-        Self::build(SqlStatement::<R, F, P,>::InsertMany(recs,),)
+    fn insert_many(_ctx: &C, recs: Vec<R,>,) -> Builder<C, Self, R, U, F, P,> {
+        Self::build_insert(SqlStatement::<R, U, F, P,>::InsertMany(recs,),)
     }
 
-    fn select(_ctx: &C, rec: Vec<F,>,) -> Builder<C, Self, R, F, P,> {
-        Self::build(SqlStatement::<R, F, P,>::Select(rec,),)
+    fn select(_ctx: &C, rec: Vec<F,>,) -> Builder<C, Self, R, U, F, P,> {
+        Self::build_insert(SqlStatement::<R, U, F, P,>::Select(rec,),)
     }
-    fn update_many(_ctx: &C, rec: R,) -> Builder<C, Self, R, F, P,> {
-        Self::build(SqlStatement::Update(rec,),)
+    fn update_many(_ctx: &C, rec: U,) -> Builder<C, Self, R, U, F, P,> {
+        Self::build_insert(SqlStatement::Update(rec,),)
     }
-    fn patch(_ctx: &C, recs: Vec<P,>,) -> Builder<C, Self, R, F, P,> {
-        Self::build(SqlStatement::Patch(recs,),)
+    fn patch(_ctx: &C, recs: Vec<P,>,) -> Builder<C, Self, R, U, F, P,> {
+        Self::build_insert(SqlStatement::Patch(recs,),)
     }
 }
 
 // Anything that implements Build `B` implements the Interface
-impl<C: Context, R: ToRow, F: ToField, P: ToPatch, B: Build<C, R, F, P,>,> Interface<C, R, F, P,>
+impl<C: Context, R: ToRow, U: ToRow, F: ToField, P: ToPatch, B: Build<C, R, U, F, P,>,> Interface<C, R, U, F, P,>
     for B
 {
 }
@@ -70,9 +70,9 @@ impl<C: Context, R: ToRow, F: ToField, P: ToPatch, B: Build<C, R, F, P,>,> Inter
 // ////
 
 // Our builder will be composed of multiple parts
-pub struct Builder<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch,> {
+pub struct Builder<C: Context, A: QueryAs, R: ToRow, U: ToRow, F: ToField, P: ToPatch,> {
     // SELECT, UPDATE, INSERT ...
-    statement: SqlStatement<R, F, P,>,
+    statement: SqlStatement<R, U, F, P,>,
     // WHERE ...
     filters: Vec<FilterOp<F,>,>,
     // Schema
@@ -87,7 +87,7 @@ pub struct Builder<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch,> {
 }
 
 // expose build methods with the *Builder Pattern*
-impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch,> Builder<C, A, R, F, P,> {
+impl<C: Context, A: QueryAs, R: ToRow, U: ToRow, F: ToField, P: ToPatch,> Builder<C, A, R, U, F, P,> {
     // add filters to the query
     pub fn filter(mut self, mut values: Vec<FilterOp<F,>,>,) -> Self {
         self.filters.append(&mut values,);
@@ -112,10 +112,10 @@ impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch,> Builder<C, A, R,
 //
 
 // The Builder can convert to SQL Queries
-impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch,> ToSql<R, F, P,>
-    for Builder<C, A, R, F, P,>
+impl<C: Context, A: QueryAs, R: ToRow, U: ToRow, F: ToField, P: ToPatch,> ToSql<R, U, F, P,>
+    for Builder<C, A, R, U, F, P,>
 {
-    fn statement(&self,) -> &SqlStatement<R, F, P,> {
+    fn statement(&self,) -> &SqlStatement<R, U, F, P,> {
         &self.statement
     }
     fn schema(&self,) -> &String {
@@ -128,17 +128,17 @@ impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch,> ToSql<R, F, P,>
 
 // The Builder can execute SQL Queries
 // Self is required to be ToSql so that it can access it's conversion methods
-impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch,> Execute<C, A, R, F, P,>
-    for Builder<C, A, R, F, P,>
+impl<C: Context, A: QueryAs, R: ToRow, U: ToRow, F: ToField, P: ToPatch,> Execute<C, A, R, U, F, P,>
+    for Builder<C, A, R, U, F, P,>
 where
-    Self: ToSql<R, F, P,>,
+    Self: ToSql<R, U, F, P,>,
 {
 }
 
 // Turn the type into an SQL Statement, from parts
-pub trait ToSql<R: ToRow, F: ToField, P: ToPatch,> {
+pub trait ToSql<R: ToRow, U: ToRow, F: ToField, P: ToPatch,> {
     // get the INSERT, SELECT, UPDATE method
-    fn statement(&self,) -> &SqlStatement<R, F, P,>;
+    fn statement(&self,) -> &SqlStatement<R, U, F, P,>;
     // get the WHERE method
     fn filters(&self,) -> &Vec<FilterOp<F,>,>;
     // get the schema name
@@ -231,8 +231,8 @@ pub trait ToSql<R: ToRow, F: ToField, P: ToPatch,> {
 
 // Expose Execution methods
 // Self has to impl ToSql so that it can access SQL Conversion Methods
-pub trait Execute<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch,>:
-    ToSql<R, F, P,>
+pub trait Execute<C: Context, A: QueryAs, R: ToRow, U: ToRow, F: ToField, P: ToPatch,>:
+    ToSql<R, U, F, P,>
 {
     fn execute(&self, _ctx: &C,) -> impl std::future::Future<Output = anyhow::Result<(),>,> + Send
     where
@@ -296,9 +296,9 @@ pub trait Execute<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch,>:
 }
 
 // Display the SQL to the user.
-impl<C: Context, A: QueryAs, R: ToRow, F: ToField, P: ToPatch,> Display for Builder<C, A, R, F, P,>
+impl<C: Context, A: QueryAs, R: ToRow, U: ToRow, F: ToField, P: ToPatch,> Display for Builder<C, A, R, U, F, P,>
 where
-    Self: ToSql<R, F, P,>,
+    Self: ToSql<R, U, F, P,>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_,>,) -> std::fmt::Result {
         write!(f, "{}", self.to_sql().map_err(|_| std::fmt::Error)?)
