@@ -278,12 +278,10 @@ pub trait Execute<C: Context, A: QueryAs, R: ToRow, U: ToRow, F: ToField, P: ToP
                         return Err(anyhow!("Unable to Update/Patch with empty fields"),);
                     }
                 }
-                SqlStatement::Select(field_blocks,) => {
-                    if field_blocks.len() != 1 {
-                        return Err(anyhow!(
-                            "Unable to use the fetch_all method while choosing which fields to return. Use the fetch_all_raw() method."
-                        ),);
-                    }
+                SqlStatement::Select(field_blocks,) if field_blocks.len() != 1 => {
+                    return Err(anyhow!(
+                        "Unable to use the fetch_all method while choosing which fields to return. Use the fetch_all_raw() method."
+                    ),);
                 }
                 _ => {}
             }

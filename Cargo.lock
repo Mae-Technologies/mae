@@ -2227,7 +2227,7 @@ dependencies = [
 [[package]]
 name = "mae_macros"
 version = "0.1.0"
-source = "git+ssh://git@github.com/Mae-Technologies/mae_macros.git?branch=fix%2Fsqlx-0.8-compat#2c90ed07733fba113fa04444bb76fa53ee7c9bd9"
+source = "git+ssh://git@github.com/Mae-Technologies/mae_macros.git?branch=fix%2Fsqlx-0.8-compat#aa24d4b3dde299de3161390c0ab61468f480121d"
 dependencies = [
  "chrono",
  "proc-macro2",

@@ -3,14 +3,14 @@ use crate::common::must::{Must, MustExpect, must_be_true, must_eq};
 use crate::repo::fixture::Field;
 use crate::repo::fixture::{self, RepoExample};
 use anyhow::Result;
-pub use chrono::Utc;
+use chrono::Utc;
 use mae::repo::default::DomainStatus;
 use mae::repo::filter::{Filter, FilterOp};
 use mae::repo::implement::{Execute, Interface};
 use mae::request_context::ContextAccessor;
 use mae_macros::mae_test;
-pub use serde_json::Map;
-pub use sqlx::types::JsonValue as SqlxJson;
+use serde_json::Map;
+use sqlx::types::JsonValue as SqlxJson;
 
 #[mae_test(not_async)]
 fn should_make_domain_struct() {
@@ -102,7 +102,7 @@ async fn should_get_records() -> Result<(),> {
 async fn should_error_on_update_without_filters() -> Result<(),> {
     let ctx = get_context().await.must();
 
-    let data = fixture::gen_row();
+    let data = fixture::gen_update_row();
     let builder = fixture::RepoExample::update_many(&ctx, data,);
 
     let mut conn =
@@ -117,20 +117,14 @@ async fn should_error_on_update_without_filters() -> Result<(),> {
 async fn should_error_on_update_with_row_fields_all_none() -> Result<(),> {
     let ctx = get_context().await.must();
 
-    let data = fixture::Row {
-        sys_client: None,
-        value: None,
+    // UpdateRow: all fields None => no bindings => should error
+    let data = fixture::UpdateRow {
         status: None,
+        value: None,
         string_value: None,
         comment: None,
         tags: None,
         sys_detail: None,
-        id: None,
-        // TODO: _by should be created dynamically with ctx, _at created dynamically with now()
-        created_by: None,
-        updated_by: None,
-        updated_at: None,
-        created_at: None,
     };
     let mut builder = fixture::RepoExample::update_many(&ctx, data,);
     builder = builder
@@ -151,7 +145,7 @@ async fn should_update() -> Result<(),> {
 
     let _ = RepoExample::insert_one(&ctx, new_data,).fetch_all(ctx.db_pool(),).await;
 
-    let data = fixture::gen_row();
+    let data = fixture::gen_update_row();
     let mut builder = fixture::RepoExample::update_many(&ctx, data,);
     builder = builder
         .filter(vec![FilterOp::Begin(Field::string_value, Filter::Like("hello_world".into(),),)],);

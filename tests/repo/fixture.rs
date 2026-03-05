@@ -1,11 +1,10 @@
 use crate::common::context::Ctx;
-pub use chrono::Utc;
 use mae::repo::default::DomainStatus;
 use mae::repo::filter::{Filter, FilterOp};
 use mae::repo::implement::{KeyAuths, ToField};
 use mae::repo::macros::schema;
 pub use serde_json::Map;
-use sqlx::Arguments;
+
 pub use sqlx::types::JsonValue as SqlxJson;
 
 #[schema(Ctx, "repoexample")]
@@ -24,21 +23,26 @@ impl<F: ToField,> KeyAuths<F,> for RepoExample {
 
 // TODO: fixture methods should be dynamically generated randomly
 
-pub fn gen_row() -> Row {
-    Row {
-        sys_client: Some(1,),
+pub fn gen_row() -> InsertRow {
+    InsertRow {
+        sys_client: 1,
+        status: DomainStatus::Active,
+        value: 1,
+        string_value: String::from("hello_world",),
+        comment: None,
+        tags: SqlxJson::Array(vec![],),
+        sys_detail: SqlxJson::Object(Map::new(),),
+    }
+}
+
+pub fn gen_update_row() -> UpdateRow {
+    UpdateRow {
         status: Some(DomainStatus::Active,),
         value: Some(1,),
         string_value: Some(String::from("hello_world",),),
-        comment: Some(None,),
+        comment: None,
         tags: Some(SqlxJson::Array(vec![],),),
         sys_detail: Some(SqlxJson::Object(Map::new(),),),
-        id: None,
-        // TODO: _by should be created dynamically with ctx, _at created dynamically with now()
-        created_by: Some(1,),
-        updated_by: Some(1,),
-        updated_at: Some(Utc::now(),),
-        created_at: Some(Utc::now(),),
     }
 }
 
