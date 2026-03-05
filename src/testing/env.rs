@@ -160,12 +160,12 @@ pub fn load() -> &'static DotEnv {
 
         let raw = get("SUPER_DATABASE_URL",);
         let super_database_url = shellexpand::env(&raw,)
-            .must_expect("DATABASE_URL contains unknown env vars",)
+            .must_expect("SUPER_DATABASE_URL contains unknown env vars",)
             .into_owned();
 
         let raw = get("MIGRATOR_DATABASE_URL",);
         let migrator_database_url = shellexpand::env(&raw,)
-            .must_expect("DATABASE_URL contains unknown env vars",)
+            .must_expect("MIGRATOR_DATABASE_URL contains unknown env vars",)
             .into_owned();
 
         let raw = get("DATABASE_URL",);
@@ -175,12 +175,12 @@ pub fn load() -> &'static DotEnv {
 
         let raw = get("APP_DATABASE_URL",);
         let app_database_url = shellexpand::env(&raw,)
-            .must_expect("DATABASE_URL contains unknown env vars",)
+            .must_expect("APP_DATABASE_URL contains unknown env vars",)
             .into_owned();
 
         let raw = get("TABLE_CREATOR_DATABASE_URL",);
         let table_creator_database_url = shellexpand::env(&raw,)
-            .must_expect("DATABASE_URL contains unknown env vars",)
+            .must_expect("TABLE_CREATOR_DATABASE_URL contains unknown env vars",)
             .into_owned();
 
         // ---------------- safety guards ----------------
