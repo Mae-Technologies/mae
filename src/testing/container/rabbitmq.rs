@@ -127,7 +127,7 @@ pub async fn spawn_scoped_vhost() -> Result<RabbitMqScope,> {
         (c.amqp_port, c.mgmt_port,)
     };
 
-    let vhost_id = Uuid::new_v4().to_string().replace('-', "");
+    let vhost_id = Uuid::new_v4().to_string().replace('-', "",);
     let vhost = format!("mae_test_{vhost_id}");
     let mgmt_base_url = format!("http://localhost:{mgmt_port}");
 

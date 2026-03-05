@@ -130,7 +130,7 @@ pub async fn spawn_scoped_database() -> Result<Neo4jScope,> {
     ensure_started().await?;
     let guard = neo4j_mutex().lock().await;
     let _inner = guard.as_ref().context("Neo4j container not running — this is a bug",)?;
-    let id = Uuid::new_v4().to_string().replace('-', "")[..8].to_string();
+    let id = Uuid::new_v4().to_string().replace('-', "",)[..8].to_string();
     Ok(Neo4jScope { database: format!("mae_test_{id}"), },)
 }
 

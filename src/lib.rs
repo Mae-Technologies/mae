@@ -14,6 +14,3 @@ pub mod session;
 pub mod telemetry;
 pub mod testing;
 pub mod util;
-
-#[cfg(feature = "test-utils")]
-pub mod testing;
