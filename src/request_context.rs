@@ -20,13 +20,21 @@ impl<T: Clone,> RequestContext<T,> {
     }
 }
 
+// TODO: ContextAccessor may not be required
 pub trait ContextAccessor {
     fn db_pool(&self,) -> &PgPool;
-    // TODO: implement the other property accessor functions (ie Session, CustomContext)
+    fn session(&self,) -> &Session;
+    fn session_user(&self,) -> &i32;
 }
 
 impl<T: Clone,> ContextAccessor for RequestContext<T,> {
     fn db_pool(&self,) -> &PgPool {
         &self.db_pool
+    }
+    fn session(&self,) -> &Session {
+        &self.session
+    }
+    fn session_user(&self,) -> &i32 {
+        &self.session.user_id
     }
 }

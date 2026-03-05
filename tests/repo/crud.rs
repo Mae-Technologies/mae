@@ -1,5 +1,5 @@
 use crate::common::context::get_context;
-use crate::common::must::{Must, MustExpect, must_be_true, must_eq};
+use crate::common::must::{Must, must_be_true, must_eq};
 use crate::repo::fixture::Field;
 use crate::repo::fixture::{self, RepoExample};
 use anyhow::Result;
@@ -9,8 +9,8 @@ use mae::repo::filter::{Filter, FilterOp};
 use mae::repo::implement::{Execute, Interface};
 use mae::request_context::ContextAccessor;
 use mae_macros::mae_test;
-use serde_json::Map;
-use sqlx::types::JsonValue as SqlxJson;
+pub use serde_json::Map;
+pub use sqlx::types::JsonValue as SqlxJson;
 
 #[cfg_attr(miri, ignore)]
 #[mae_test(not_async)]
@@ -31,26 +31,30 @@ fn should_make_domain_struct() {
     };
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_insert() -> Result<(),> {
-    let ctx = get_context().await.must();
+    let ctx = get_context().await?;
 
-    let data = fixture::gen_row(); // let data = RepoExample {
+    let mut tx = ctx.db_pool.begin().await?;
+
+    let data = fixture::gen_insert_row(); // let data = RepoExample {
     // };
     let builder = fixture::RepoExample::insert_one(&ctx, data,);
-    // println!("{}", builder);
-    let mut conn =
-        ctx.custom.scoped_connection().await.must_expect("failed to get db connection.",);
-    let res = builder.fetch_all(&mut conn,).await.must();
-    // println!("{:?}", res);
+
+    let res = builder.fetch_all(&mut *tx,).await?;
 
     must_eq(res[0].string_value.as_str(), "hello_world",);
+
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_get_empty_records() -> Result<(),> {
-    let ctx = get_context().await.must();
+    let ctx = get_context().await?;
+
+    let mut tx = ctx.db_pool.begin().await?;
 
     let mut builder = fixture::RepoExample::select(&ctx, vec![Field::All],);
 
@@ -59,66 +63,61 @@ async fn should_get_empty_records() -> Result<(),> {
         FilterOp::Or(Field::string_value, Filter::Ilike("hello".to_string(),),),
     ],);
 
-    // println!("{}", builder);
-    let mut conn =
-        ctx.custom.scoped_connection().await.must_expect("failed to get db connection.",);
-    let res = builder.fetch_all(&mut conn,).await.must();
-    // println!("{:?}", res);
+    let res = builder.fetch_all(&mut *tx,).await?;
 
     must_be_true(res.is_empty(),);
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_get_records() -> Result<(),> {
-    let ctx = get_context().await.must();
-    let mut conn =
-        ctx.custom.scoped_connection().await.must_expect("failed to get db connection.",);
+    let ctx = get_context().await?;
 
-    let data = fixture::gen_row();
+    let mut tx = ctx.db_pool.begin().await?;
 
-    let builder = fixture::RepoExample::insert_one(&ctx, data,);
-    // println!("{}", builder);
-    let res = builder.fetch_all(&mut conn,).await.must();
-    // println!("{:?}", rec);
+    let data = fixture::gen_insert_row();
+
+    let builder = fixture::RepoExample::insert_one(&ctx, data.clone(),);
+
+    let res = builder.fetch_all(&mut *tx,).await?;
 
     must_eq(res[0].string_value.as_str(), "hello_world",);
 
-    let builder = fixture::RepoExample::select(&ctx, vec![Field::All],);
-    // Vjfilter(vec![FilterOp::Begin(
-    //     Field::string_value,
-    //     Filter::Ilike("%hello%".to_string()),
-    // )]);
+    let builder = fixture::RepoExample::select(&ctx, vec![Field::All],).filter(vec![
+        FilterOp::Begin(Field::string_value, Filter::StringIs(data.string_value.clone(),),),
+        FilterOp::And(Field::value, Filter::Equals(1,),),
+    ],);
 
-    println!("{}", builder);
-
-    let res = builder.fetch_all(&mut conn,).await.must();
-    println!("{:?}", res);
+    let res = builder.fetch_all(&mut *tx,).await?;
 
     must_be_true(!res.is_empty(),);
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_update_without_filters() -> Result<(),> {
-    let ctx = get_context().await.must();
+    let ctx = get_context().await?;
+
+    let mut tx = ctx.db_pool.begin().await?;
 
     let data = fixture::gen_update_row();
     let builder = fixture::RepoExample::update_many(&ctx, data,);
 
-    let mut conn =
-        ctx.custom.scoped_connection().await.must_expect("failed to get db connection.",);
-    let res = builder.fetch_all(&mut conn,).await;
-    //
+    let res = builder.fetch_all(&mut *tx,).await;
     res.err().must();
+    // TODO: this should error, but the error message should also be checked.
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_update_with_row_fields_all_none() -> Result<(),> {
-    let ctx = get_context().await.must();
+    let ctx = get_context().await?;
 
-    // UpdateRow: all fields None => no bindings => should error
+    let mut tx = ctx.db_pool.begin().await?;
+
     let data = fixture::UpdateRow {
         status: None,
         value: None,
@@ -131,18 +130,19 @@ async fn should_error_on_update_with_row_fields_all_none() -> Result<(),> {
     builder = builder
         .filter(vec![FilterOp::Begin(Field::string_value, Filter::Like("hello_world".into(),),)],);
 
-    let mut conn =
-        ctx.custom.scoped_connection().await.must_expect("failed to get db connection.",);
-    let res = builder.fetch_all(&mut conn,).await;
-    //
+    let res = builder.fetch_all(&mut *tx,).await;
+    // TODO: this should error, but the error message should also be checked.
     res.err().must();
     Ok((),)
 }
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_update() -> Result<(),> {
-    let ctx = get_context().await.must();
+    let ctx = get_context().await?;
 
-    let new_data = fixture::gen_row();
+    let mut tx = ctx.db_pool.begin().await?;
+
+    let new_data = fixture::gen_insert_row();
 
     let _ = RepoExample::insert_one(&ctx, new_data,).fetch_all(ctx.db_pool(),).await;
 
@@ -151,72 +151,73 @@ async fn should_update() -> Result<(),> {
     builder = builder
         .filter(vec![FilterOp::Begin(Field::string_value, Filter::Like("hello_world".into(),),)],);
 
-    // println!("{}", builder);
-    let mut conn =
-        ctx.custom.scoped_connection().await.must_expect("failed to get db connection.",);
-    let _res = builder.fetch_all(&mut conn,).await.must();
+    let _res = builder.fetch_all(&mut *tx,).await?;
 
+    // TODO: the result should match the input
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_patch_without_filters() -> Result<(),> {
-    let ctx = get_context().await.must();
+    let ctx = get_context().await?;
+
+    let mut tx = ctx.db_pool.begin().await?;
 
     let data = fixture::gen_patches();
     let builder = fixture::RepoExample::patch(&ctx, data,);
 
-    let mut conn =
-        ctx.custom.scoped_connection().await.must_expect("failed to get db connection.",);
-    let res = builder.fetch_all(&mut conn,).await;
+    let res = builder.fetch_all(&mut *tx,).await;
     //
     must_be_true(res.err().must().to_string().contains("Unable to Update/Patch",),);
     Ok((),)
 }
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_patch_with_fields_empty() -> Result<(),> {
     let ctx = get_context().await.must();
+
+    let mut tx = ctx.db_pool.begin().await?;
 
     let data: Vec<fixture::PatchField,> = vec![];
     let mut builder = fixture::RepoExample::patch(&ctx, data,);
     builder = builder.filter(fixture::gen_filters(),);
 
-    let mut conn =
-        ctx.custom.scoped_connection().await.must_expect("failed to get db connection.",);
-    let res = builder.fetch_all(&mut conn,).await;
+    let res = builder.fetch_all(&mut *tx,).await;
     //
     must_be_true(res.is_err(),);
     must_be_true(res.err().must().to_string().contains("Unable to Update/Patch",),);
     Ok((),)
 }
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn patch_should_return_empty() -> Result<(),> {
-    let ctx = get_context().await.must();
+    let ctx = get_context().await?;
+
+    let mut tx = ctx.db_pool.begin().await?;
 
     let data = fixture::gen_patches();
     let mut builder = fixture::RepoExample::patch(&ctx, data,);
     builder = builder.filter(fixture::gen_filters(),);
 
-    let mut conn =
-        ctx.custom.scoped_connection().await.must_expect("failed to get db connection.",);
-    let res = builder.fetch_all(&mut conn,).await.must();
-    //
+    let res = builder.fetch_all(&mut *tx,).await?;
+
     must_be_true(res.is_empty(),);
     Ok((),)
 }
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_patch() -> Result<(),> {
-    let ctx = get_context().await.must();
+    let ctx = get_context().await?;
+
+    let mut tx = ctx.db_pool.begin().await?;
 
     let data = fixture::gen_patches();
     let mut builder = fixture::RepoExample::patch(&ctx, data,);
     builder = builder.filter(fixture::gen_filters(),);
 
-    // println!("{}", builder);
-    let mut conn =
-        ctx.custom.scoped_connection().await.must_expect("failed to get db connection.",);
-    let _res = builder.fetch_all(&mut conn,).await.must();
-    // println!("{:?}", res);
+    let _res = builder.fetch_all(&mut *tx,).await?;
 
+    // TODO: the result should match the input
     Ok((),)
 }

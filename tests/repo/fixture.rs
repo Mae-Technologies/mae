@@ -4,7 +4,7 @@ use mae::repo::filter::{Filter, FilterOp};
 use mae::repo::implement::{KeyAuths, ToField};
 use mae::repo::macros::schema;
 pub use serde_json::Map;
-
+use sqlx::Arguments;
 pub use sqlx::types::JsonValue as SqlxJson;
 
 #[schema(Ctx, "repoexample")]
@@ -23,7 +23,7 @@ impl<F: ToField,> KeyAuths<F,> for RepoExample {
 
 // TODO: fixture methods should be dynamically generated randomly
 
-pub fn gen_row() -> InsertRow {
+pub fn gen_insert_row() -> InsertRow {
     InsertRow {
         sys_client: 1,
         status: DomainStatus::Active,
@@ -40,7 +40,7 @@ pub fn gen_update_row() -> UpdateRow {
         status: Some(DomainStatus::Active,),
         value: Some(1,),
         string_value: Some(String::from("hello_world",),),
-        comment: None,
+        comment: Some(None,),
         tags: Some(SqlxJson::Array(vec![],),),
         sys_detail: Some(SqlxJson::Object(Map::new(),),),
     }
