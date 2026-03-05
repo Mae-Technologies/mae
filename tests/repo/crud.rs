@@ -15,6 +15,7 @@ pub use sqlx::types::JsonValue as SqlxJson;
 
 // TODO: remove me:
 
+#[cfg_attr(miri, ignore)]
 #[mae_test(not_async)]
 fn should_make_domain_struct() {
     let _my_repo = fixture::RepoExample {
@@ -33,6 +34,7 @@ fn should_make_domain_struct() {
     };
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_insert() -> Result<(),> {
     let ctx = get_context().await?;
@@ -50,6 +52,7 @@ async fn should_insert() -> Result<(),> {
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_get_empty_records() -> Result<(),> {
     let ctx = get_context().await?;
@@ -69,6 +72,7 @@ async fn should_get_empty_records() -> Result<(),> {
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_get_records() -> Result<(),> {
     let ctx = get_context().await?;
@@ -94,6 +98,7 @@ async fn should_get_records() -> Result<(),> {
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_update_without_filters() -> Result<(),> {
     let ctx = get_context().await?;
@@ -109,6 +114,7 @@ async fn should_error_on_update_without_filters() -> Result<(),> {
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_update_with_row_fields_all_none() -> Result<(),> {
     let ctx = get_context().await?;
@@ -132,6 +138,7 @@ async fn should_error_on_update_with_row_fields_all_none() -> Result<(),> {
     res.err().must();
     Ok((),)
 }
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_update() -> Result<(),> {
     let ctx = get_context().await?;
@@ -153,6 +160,7 @@ async fn should_update() -> Result<(),> {
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_patch_without_filters() -> Result<(),> {
     let ctx = get_context().await?;
@@ -167,6 +175,7 @@ async fn should_error_on_patch_without_filters() -> Result<(),> {
     must_be_true(res.err().must().to_string().contains("Unable to Update/Patch",),);
     Ok((),)
 }
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_patch_with_fields_empty() -> Result<(),> {
     let ctx = get_context().await.must();
@@ -183,6 +192,7 @@ async fn should_error_on_patch_with_fields_empty() -> Result<(),> {
     must_be_true(res.err().must().to_string().contains("Unable to Update/Patch",),);
     Ok((),)
 }
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn patch_should_return_empty() -> Result<(),> {
     let ctx = get_context().await?;
@@ -198,6 +208,7 @@ async fn patch_should_return_empty() -> Result<(),> {
     must_be_true(res.is_empty(),);
     Ok((),)
 }
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_patch() -> Result<(),> {
     let ctx = get_context().await?;
