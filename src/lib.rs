@@ -13,3 +13,5 @@ pub mod routes;
 pub mod session;
 pub mod telemetry;
 pub mod util;
+
+pub mod testing;
