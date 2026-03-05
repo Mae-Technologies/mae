@@ -4,7 +4,6 @@ use mae::repo::filter::{Filter, FilterOp};
 use mae::repo::implement::{KeyAuths, ToField};
 use mae::repo::macros::schema;
 pub use serde_json::Map;
-use sqlx::Arguments;
 pub use sqlx::types::JsonValue as SqlxJson;
 
 #[schema(Ctx, "repoexample")]

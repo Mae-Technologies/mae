@@ -6,7 +6,6 @@ pub use app::{redis_session, session_middleware};
 pub mod build;
 pub mod configuration;
 mod run;
-pub use app::*;
 pub use run::*;
 
 pub mod prelude {
