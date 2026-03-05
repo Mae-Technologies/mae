@@ -10,13 +10,23 @@ static CONFIG: OnceLock<DotEnv,> = OnceLock::new();
 
 #[derive(Debug,)]
 pub struct DotEnv {
+    // TODO: This is rediculous, we should just build a config from yaml and add it to our ctx
+    // --------------------------------------------------------------------- */
+    // Migration paths                                                       */
+    // ---------------------------------------------------------------------
     pub admin_migrations_path: String,
     pub app_migrations_path: String,
 
+    // --------------------------------------------------------------------- */
+    // Database identity / networking                                        */
+    // ---------------------------------------------------------------------
     pub db_host: String,
     pub _db_port: u16,
     pub app_db_name: String,
 
+    // --------------------------------------------------------------------- */
+    // Roles / credentials                                                   */
+    // ---------------------------------------------------------------------
     pub superuser: String,
     pub superuser_pwd: String,
 
@@ -29,16 +39,26 @@ pub struct DotEnv {
     pub table_provisioner_user: String,
     pub table_provisioner_pwd: String,
 
+    // --------------------------------------------------------------------- */
+    // Connection strings                                                    */
+    // ---------------------------------------------------------------------
     pub search_path: String,
 
     pub _super_database_url: String,
     pub _migrator_database_url: String,
     pub _app_database_url: String,
     pub _table_creator_database_url: String,
+
+    /// sqlx default
     pub _database_url: String,
 }
 
 impl DotEnv {
+    /// Build a Postgres DATABASE_URL using primitive env vars,
+    /// overriding the port with `port`.
+    ///
+    /// Example:
+    /// postgres://user:pwd@host:port/db?options=-csearch_path%3Dapp
     pub fn database_url_with_port(&self, port: u16,) -> String {
         build_pg_url(
             &self.migrator_user,
@@ -50,6 +70,7 @@ impl DotEnv {
         )
     }
 
+    /// Same builder for the app runtime user.
     pub fn app_database_url_with_port(&self, port: u16,) -> String {
         build_pg_url(
             &self.app_user,
@@ -61,6 +82,7 @@ impl DotEnv {
         )
     }
 
+    /// Same builder for the superuser.
     pub fn super_database_url_with_port(&self, port: u16,) -> String {
         build_pg_url(
             &self.superuser,
@@ -72,6 +94,7 @@ impl DotEnv {
         )
     }
 
+    /// Same builder for the table provisioner.
     pub fn table_creator_database_url_with_port(&self, port: u16,) -> String {
         build_pg_url(
             &self.table_provisioner_user,
@@ -93,7 +116,11 @@ fn build_pg_url(
     search_path: Option<&str,>,
 ) -> String {
     let mut url = String::with_capacity(128,);
+
+    // scheme + creds
     let _ = write!(&mut url, "postgres://{}:{}@{}:{}/{}", user, password, host, port, db_name);
+
+    // optional query (already percent-encoded in env)
     let _ = match search_path {
         Some(v,) => write!(&mut url, "?{}", v),
         None => Ok((),),
@@ -103,15 +130,19 @@ fn build_pg_url(
 
 pub fn load() -> &'static DotEnv {
     CONFIG.get_or_init(|| {
+        // Load .env once (noop if missing)
         dotenvy::dotenv().ok();
 
+        // ---------------- migration paths ----------------
         let admin_migrations_path = get("ADMIN_MIGRATIONS_PATH",);
         let app_migrations_path = get("APP_MIGRATIONS_PATH",);
 
+        // ---------------- db identity ----------------
         let db_host = get("DB_HOST",);
         let db_port: u16 = get("DB_PORT",).parse().must_expect("DB_PORT must be a valid u16",);
         let app_db_name = get("APP_DB_NAME",);
 
+        // ---------------- roles ----------------
         let superuser = get("SUPERUSER",);
         let superuser_pwd = get("SUPERUSER_PWD",);
 
@@ -124,6 +155,7 @@ pub fn load() -> &'static DotEnv {
         let table_provisioner_user = get("TABLE_PROVISIONER_USER",);
         let table_provisioner_pwd = get("TABLE_PROVISIONER_PWD",);
 
+        // ---------------- urls ----------------
         let search_path = get("SEARCH_PATH",);
 
         let raw = get("SUPER_DATABASE_URL",);
@@ -151,6 +183,7 @@ pub fn load() -> &'static DotEnv {
             .must_expect("TABLE_CREATOR_DATABASE_URL contains unknown env vars",)
             .into_owned();
 
+        // ---------------- safety guards ----------------
         assert_test_database(&super_database_url,);
         assert_test_database(&database_url,);
         assert_test_database(&migrator_database_url,);

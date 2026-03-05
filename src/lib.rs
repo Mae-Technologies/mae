@@ -12,6 +12,7 @@ pub mod request_context;
 pub mod routes;
 pub mod session;
 pub mod telemetry;
+pub mod testing;
 pub mod util;
 
 pub mod testing;
