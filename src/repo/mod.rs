@@ -18,6 +18,7 @@ pub mod implement {
 
 pub mod macros {
     pub use mae_macros::schema;
+    pub use mae_macros::schema_root;
 }
 
 pub mod __private__ {
