@@ -1,5 +1,8 @@
 // TODO: Im pretty sure the crate::aop::app is not being used at all. -- it has been removed, but
 // if something errors when using this crate, look into it.
+#[allow(clippy::module_inception)]
+pub mod app;
+pub use app::{redis_session, session_middleware};
 pub mod build;
 pub mod configuration;
 mod run;

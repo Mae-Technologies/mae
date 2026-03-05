@@ -2,7 +2,6 @@ use std::env;
 use std::fmt::Write;
 use std::sync::OnceLock;
 
-use sqlx::database;
 use url::Url;
 
 use super::must::MustExpect;
@@ -22,7 +21,7 @@ pub struct DotEnv {
     // Database identity / networking                                        */
     // ---------------------------------------------------------------------
     pub db_host: String,
-    pub db_port: u16,
+    pub _db_port: u16,
     pub app_db_name: String,
 
     // --------------------------------------------------------------------- */
@@ -45,13 +44,13 @@ pub struct DotEnv {
     // ---------------------------------------------------------------------
     pub search_path: String,
 
-    pub super_database_url: String,
-    pub migrator_database_url: String,
-    pub app_database_url: String,
-    pub table_creator_database_url: String,
+    pub _super_database_url: String,
+    pub _migrator_database_url: String,
+    pub _app_database_url: String,
+    pub _table_creator_database_url: String,
 
     /// sqlx default
-    pub database_url: String,
+    pub _database_url: String,
 }
 
 impl DotEnv {
@@ -122,7 +121,7 @@ fn build_pg_url(
     let _ = write!(&mut url, "postgres://{}:{}@{}:{}/{}", user, password, host, port, db_name);
 
     // optional query (already percent-encoded in env)
-    match search_path {
+    let _ = match search_path {
         Some(v,) => write!(&mut url, "?{}", v),
         None => Ok((),),
     };
@@ -195,7 +194,7 @@ pub fn load() -> &'static DotEnv {
             admin_migrations_path,
             app_migrations_path,
             db_host,
-            db_port,
+            _db_port: db_port,
             app_db_name,
             superuser,
             superuser_pwd,
@@ -206,11 +205,11 @@ pub fn load() -> &'static DotEnv {
             table_provisioner_user,
             table_provisioner_pwd,
             search_path,
-            super_database_url,
-            migrator_database_url,
-            app_database_url,
-            table_creator_database_url,
-            database_url,
+            _super_database_url: super_database_url,
+            _migrator_database_url: migrator_database_url,
+            _app_database_url: app_database_url,
+            _table_creator_database_url: table_creator_database_url,
+            _database_url: database_url,
         }
     },)
 }
@@ -225,7 +224,7 @@ fn assert_test_database(database_url: &str,) {
 
     let db_name = url
         .path_segments()
-        .and_then(|s| s.last(),)
+        .and_then(|mut s| s.next_back(),)
         .filter(|s| !s.is_empty(),)
         .must_expect("DATABASE_URL must include a database name",);
 

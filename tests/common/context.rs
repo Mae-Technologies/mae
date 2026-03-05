@@ -2,12 +2,10 @@ use super::{env, must::MustExpect};
 use anyhow::{Context, Result};
 use mae::request_context::RequestContext;
 use mae::session::Session;
-use rand::{Rng, rng};
 use sqlx::PgPool;
 use sqlx::{Connection, Executor, PgConnection};
 use std::io::IsTerminal;
 use std::sync::Arc;
-use testcontainers::core::ContainerPort;
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ImageExt};
 use testcontainers_modules::postgres::Postgres;
@@ -54,7 +52,7 @@ async fn pg_container() -> &'static Mutex<Option<TestContainer,>,> {
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true",),)
                 .unwrap_or(false,);
 
-            let conf = env::load();
+            let _conf = env::load();
 
             if !enabled {
                 // Keep as None; callers should error with a helpful message.
@@ -92,7 +90,7 @@ pub async fn teardown() {
     }
 }
 
-async fn postgres_host_port() -> Result<(String, u16,),> {
+async fn _postgres_host_port() -> Result<(String, u16,),> {
     let m = pg_container().await;
     let guard = m.lock().await;
 
@@ -136,7 +134,7 @@ async fn pool() -> Result<&'static PgPool,> {
                 // RUN Presql scripts
                 run_premigration(c,).await.context("pre-migrations script failed",)?;
 
-                let cfg = env::load();
+                let _cfg = env::load();
 
                 // Get a pool with app_user priviledges to pass to the caller
                 let app_url = &env::load().app_database_url_with_port(c.port,);
@@ -244,6 +242,7 @@ mod test_context {
     use anyhow::Result;
     use mae_macros::mae_test;
 
+    #[cfg_attr(miri, ignore)]
     #[mae_test(not_async)]
     async fn parallelism() -> Result<(),> {
         // Create an isolated schema for this test run.
@@ -263,6 +262,7 @@ mod test_context {
         Ok((),)
     }
 
+    #[cfg_attr(miri, ignore)]
     #[mae_test(not_async)]
     async fn uses_test_context_schema_isolation() -> Result<(),> {
         // Create an isolated schema for this test run.

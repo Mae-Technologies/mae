@@ -1,5 +1,5 @@
 use crate::common::context::get_context;
-use crate::common::must::{Must, MustExpect, must_be_true, must_eq};
+use crate::common::must::{Must, must_be_true, must_eq};
 use crate::repo::fixture::Field;
 use crate::repo::fixture::{self, RepoExample};
 use anyhow::Result;
@@ -14,10 +14,8 @@ pub use serde_json::Map;
 pub use sqlx::types::JsonValue as SqlxJson;
 
 // TODO: remove me:
-use sqlx::Arguments;
-use sqlx::{Postgres, Transaction, postgres::PgArguments};
-use uuid::Uuid;
 
+#[cfg_attr(miri, ignore)]
 #[mae_test(not_async)]
 fn should_make_domain_struct() {
     let _my_repo = fixture::RepoExample {
@@ -36,6 +34,7 @@ fn should_make_domain_struct() {
     };
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_insert() -> Result<(),> {
     let ctx = get_context().await?;
@@ -44,7 +43,7 @@ async fn should_insert() -> Result<(),> {
 
     let data = fixture::gen_insert_row(); // let data = RepoExample {
     // };
-    let mut builder = fixture::RepoExample::insert_one(&ctx, data,);
+    let builder = fixture::RepoExample::insert_one(&ctx, data,);
 
     let res = builder.fetch_all(&mut *tx,).await?;
 
@@ -53,6 +52,7 @@ async fn should_insert() -> Result<(),> {
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_get_empty_records() -> Result<(),> {
     let ctx = get_context().await?;
@@ -72,6 +72,7 @@ async fn should_get_empty_records() -> Result<(),> {
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_get_records() -> Result<(),> {
     let ctx = get_context().await?;
@@ -80,13 +81,13 @@ async fn should_get_records() -> Result<(),> {
 
     let data = fixture::gen_insert_row();
 
-    let mut builder = fixture::RepoExample::insert_one(&ctx, data.clone(),);
+    let builder = fixture::RepoExample::insert_one(&ctx, data.clone(),);
 
     let res = builder.fetch_all(&mut *tx,).await?;
 
     must_eq(res[0].string_value.as_str(), "hello_world",);
 
-    let mut builder = fixture::RepoExample::select(&ctx, vec![Field::All],).filter(vec![
+    let builder = fixture::RepoExample::select(&ctx, vec![Field::All],).filter(vec![
         FilterOp::Begin(Field::string_value, Filter::StringIs(data.string_value.clone(),),),
         FilterOp::And(Field::value, Filter::Equals(1,),),
     ],);
@@ -97,6 +98,7 @@ async fn should_get_records() -> Result<(),> {
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_update_without_filters() -> Result<(),> {
     let ctx = get_context().await?;
@@ -104,7 +106,7 @@ async fn should_error_on_update_without_filters() -> Result<(),> {
     let mut tx = ctx.db_pool.begin().await?;
 
     let data = fixture::gen_update_row();
-    let mut builder = fixture::RepoExample::update_many(&ctx, data,);
+    let builder = fixture::RepoExample::update_many(&ctx, data,);
 
     let res = builder.fetch_all(&mut *tx,).await;
     res.err().must();
@@ -112,6 +114,7 @@ async fn should_error_on_update_without_filters() -> Result<(),> {
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_update_with_row_fields_all_none() -> Result<(),> {
     let ctx = get_context().await?;
@@ -135,6 +138,7 @@ async fn should_error_on_update_with_row_fields_all_none() -> Result<(),> {
     res.err().must();
     Ok((),)
 }
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_update() -> Result<(),> {
     let ctx = get_context().await?;
@@ -156,6 +160,7 @@ async fn should_update() -> Result<(),> {
     Ok((),)
 }
 
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_patch_without_filters() -> Result<(),> {
     let ctx = get_context().await?;
@@ -163,13 +168,14 @@ async fn should_error_on_patch_without_filters() -> Result<(),> {
     let mut tx = ctx.db_pool.begin().await?;
 
     let data = fixture::gen_patches();
-    let mut builder = fixture::RepoExample::patch(&ctx, data,);
+    let builder = fixture::RepoExample::patch(&ctx, data,);
 
     let res = builder.fetch_all(&mut *tx,).await;
     //
     must_be_true(res.err().must().to_string().contains("Unable to Update/Patch",),);
     Ok((),)
 }
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_patch_with_fields_empty() -> Result<(),> {
     let ctx = get_context().await.must();
@@ -186,6 +192,7 @@ async fn should_error_on_patch_with_fields_empty() -> Result<(),> {
     must_be_true(res.err().must().to_string().contains("Unable to Update/Patch",),);
     Ok((),)
 }
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn patch_should_return_empty() -> Result<(),> {
     let ctx = get_context().await?;
@@ -201,6 +208,7 @@ async fn patch_should_return_empty() -> Result<(),> {
     must_be_true(res.is_empty(),);
     Ok((),)
 }
+#[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_patch() -> Result<(),> {
     let ctx = get_context().await?;
