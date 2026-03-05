@@ -85,7 +85,14 @@ pub fn must_ne<V: PartialEq + std::fmt::Debug,>(left: V, right: V,) {
 
 #[track_caller]
 pub fn must_be_true(b: bool,) {
-    assert!(b);
+    assert!(b,);
+}
+
+/// Returns `true` when `MAE_TESTCONTAINERS` env var is set to `1` or `true`.
+pub fn testcontainers_enabled() -> bool {
+    std::env::var("MAE_TESTCONTAINERS",)
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true",),)
+        .unwrap_or(false,)
 }
 
 #[cfg(test)]

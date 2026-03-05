@@ -10,7 +10,7 @@
 //! # Modules
 //! | Module | Purpose |
 //! |---|---|
-//! | [`container`] | Docker container singletons (Postgres ✅, Redis/Neo4j/RabbitMQ 🔜 #40) |
+//! | [`container`] | Docker container singletons (Postgres ✅, Redis/Neo4j/RabbitMQ ✅ #40) |
 //! | [`context`]   | [`TestContext<C>`](context::TestContext) — generic test request context |
 //! | [`env`]       | `.env` loader for test credentials |
 //! | [`must`]      | Assertion helpers (`MustExpect`, `must_eq`, …) |
