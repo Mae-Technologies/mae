@@ -92,12 +92,12 @@ impl<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> BindArgs
 impl<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> Debug for SqlStatement<I, U, F, P,> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_,>,) -> std::fmt::Result {
         match self {
-            SqlStatement::Select(fields,) => {
+            SqlStatement::Select(_fields,) => {
                 // no fields to write
                 std::fmt::Result::Ok((),)
             }
             SqlStatement::InsertOne(row,) => std::fmt::Debug::fmt(&row, f,),
-            SqlStatement::InsertMany(row,) => {
+            SqlStatement::InsertMany(_row,) => {
                 todo!()
             }
             SqlStatement::Update(row,) => std::fmt::Debug::fmt(&row, f,),
@@ -263,7 +263,7 @@ pub fn sql_where<F: ToField,>(
     let whr = w
         .iter()
         .map(|f| match f {
-            FilterOp::Or(c, v,) | FilterOp::And(c, v,) | FilterOp::Begin(c, v,) => match v {
+            FilterOp::Or(_c, v,) | FilterOp::And(_c, v,) | FilterOp::Begin(_c, v,) => match v {
                 Filter::IsNull => format!("\n\t{}{}", update_batch_ref_table, f,),
                 _ => {
                     f_idx += f.bind_len();

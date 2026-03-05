@@ -1,6 +1,6 @@
 use anyhow::{Ok, Result, anyhow};
 use num::Zero;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use sqlx::{Arguments, Executor, Postgres};
@@ -19,12 +19,12 @@ pub trait Build<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPat
     QueryAs + KeyAuths<F,>
 {
     // Get a builder so we can build some SQL
-    fn build(ctx: &C, statement: SqlStatement<I, U, F, P,>,) -> Builder<C, Self, I, U, F, P,> {
+    fn build(ctx: &C, statement: SqlStatement<I, U, F, P,>,) -> Builder<'_, C, Self, I, U, F, P,> {
         Builder::<C, Self, I, U, F, P,> {
             statement,
             filters: Self::keys(),
             schema: Self::schema(),
-            ctx: ctx,
+            ctx,
             query_as: PhantomData,
             returning: None,
         }
@@ -48,21 +48,21 @@ pub trait KeyAuths<F: ToField,> {
 pub trait Interface<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,>:
     Build<C, I, U, F, P,>
 {
-    fn insert_one(ctx: &C, rec: I,) -> Builder<C, Self, I, U, F, P,> {
+    fn insert_one(ctx: &C, rec: I,) -> Builder<'_, C, Self, I, U, F, P,> {
         Self::build(ctx, SqlStatement::<I, U, F, P,>::InsertOne(rec,),)
     }
 
-    fn insert_many(ctx: &C, recs: Vec<I,>,) -> Builder<C, Self, I, U, F, P,> {
+    fn insert_many(ctx: &C, recs: Vec<I,>,) -> Builder<'_, C, Self, I, U, F, P,> {
         Self::build(ctx, SqlStatement::<I, U, F, P,>::InsertMany(recs,),)
     }
 
-    fn select(ctx: &C, rec: Vec<F,>,) -> Builder<C, Self, I, U, F, P,> {
+    fn select(ctx: &C, rec: Vec<F,>,) -> Builder<'_, C, Self, I, U, F, P,> {
         Self::build(ctx, SqlStatement::<I, U, F, P,>::Select(rec,),)
     }
-    fn update_many(ctx: &C, rec: U,) -> Builder<C, Self, I, U, F, P,> {
+    fn update_many(ctx: &C, rec: U,) -> Builder<'_, C, Self, I, U, F, P,> {
         Self::build(ctx, SqlStatement::Update(rec,),)
     }
-    fn patch(ctx: &C, recs: Vec<P,>,) -> Builder<C, Self, I, U, F, P,> {
+    fn patch(ctx: &C, recs: Vec<P,>,) -> Builder<'_, C, Self, I, U, F, P,> {
         Self::build(ctx, SqlStatement::Patch(recs,),)
     }
 }
@@ -228,7 +228,7 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> {
                     self.statement().bind_len() + 1,
                     Some("_x_".into(),),
                 );
-                let (mut fields, mut bind_idx_option,) = row.to_sql_parts();
+                let (mut fields, bind_idx_option,) = row.to_sql_parts();
                 let mut bind_idx =
                     bind_idx_option.ok_or_else(|| anyhow!("cannot find binding index"),)?;
 
@@ -315,7 +315,7 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> {
 pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,>:
     ToSql<I, U, F, P,> + ContextAccessor
 {
-    fn execute(&self, ctx: &C,) -> impl std::future::Future<Output = anyhow::Result<(),>,> + Send
+    fn execute(&self, _ctx: &C,) -> impl std::future::Future<Output = anyhow::Result<(),>,> + Send
     where
         Self: Sync,
     {
@@ -344,7 +344,7 @@ pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToF
         Self: Sync + Send,
     {
         async move {
-            &self.authenticate_request()?;
+            self.authenticate_request()?;
             let sql = self.to_sql()?;
 
             let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments,>(
@@ -396,9 +396,9 @@ where
         // sql
         write!(f, "{}", self.to_sql().map_err(|_| std::fmt::Error)?)?;
         let mut bind_len = self.statement.bind_len();
-        let mut has_bindings = false;
+        let mut _has_bindings = false;
         if !bind_len.is_zero() {
-            has_bindings = true;
+            _has_bindings = true;
             write!(f, "\n\n{}\n{}BINDINGS\n{}\n", "*".repeat(18), " ".repeat(5), "*".repeat(18),)?;
         }
         // binding values $1 ... inside statement
@@ -407,11 +407,11 @@ where
         }
 
         // TODO: remove this block then context is added in properly
-        let _ = match self.statement {
-            SqlStatement::Select(_,) => write!(f, "\n"),
+        match self.statement {
+            SqlStatement::Select(_,) => writeln!(f),
             _ => {
                 bind_len += 1;
-                return write!(f, "\n\t${} = {}\n", bind_len, "[session_user]");
+                return write!(f, "\n\t${} = [session_user]\n", bind_len);
             }
         }?;
 
@@ -424,10 +424,10 @@ where
         // binding values $1... inside where
         for (i, filter,) in self.filters.iter().enumerate() {
             match filter {
-                FilterOp::And(c, v,) | FilterOp::Or(c, v,) | FilterOp::Begin(c, v,) => match v {
+                FilterOp::And(_c, v,) | FilterOp::Or(_c, v,) | FilterOp::Begin(_c, v,) => match v {
                     Filter::IsNull => {}
                     _ => {
-                        has_bindings = true;
+                        _has_bindings = true;
                         filter_has_bindings = true;
                         filter_bindings_string.push_str(&format!(
                             "\n\t${} = {:?}",
@@ -449,11 +449,11 @@ where
                 )?;
             }
             write!(f, "{}", filter_bindings_string)?;
-            write!(f, "\n")?;
+            writeln!(f)?;
         }
 
         if bind_len.is_zero() {
-            write!(f, "\n")?;
+            writeln!(f)?;
         }
 
         // closure
