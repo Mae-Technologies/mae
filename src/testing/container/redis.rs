@@ -1,30 +1,47 @@
 //! Redis container singleton + per-test keyspace isolation.
 //!
-//! # Status — issue #40
-//! Container spinup is implemented in issue #40.  The trait impl, scope type,
-//! and `teardown()` are defined here so consumers can import them today.
-//!
 //! # Isolation strategy
-//! Each test scope selects a dedicated logical database (0–15) and holds a
+//! Redis supports 16 logical databases (0–15) by default.  Each test scope
+//! selects a dedicated logical database via an atomic counter and holds a
 //! unique key prefix.  `RedisScope::flush()` runs `FLUSHDB` on teardown.
 
-use anyhow::Result;
-use tokio::sync::{Mutex, OnceCell};
+use std::sync::{
+    OnceLock,
+    atomic::{AtomicU8, Ordering},
+};
+
+use anyhow::{Context, Result, bail};
+use testcontainers::{ContainerAsync, runners::AsyncRunner};
+use testcontainers_modules::redis::Redis;
+use tokio::sync::Mutex;
 use uuid::Uuid;
+
+use crate::testing::must::testcontainers_enabled;
 
 use super::MaeContainer;
 
-// ── Singleton placeholder ─────────────────────────────────────────────────────
+/// Default port exposed by the Redis image.
+pub const REDIS_PORT: u16 = 6379;
+
+/// Number of logical databases in the default Redis configuration.
+const REDIS_DB_COUNT: u8 = 16;
+
+// ── Singleton state ───────────────────────────────────────────────────────────
 
 pub struct Inner {
-    // Populated by #40:
-    //   pub container: ContainerAsync<GenericImage>,
-    //   pub id: String,
-    #[allow(dead_code)]
+    pub container: ContainerAsync<Redis,>,
     pub port: u16,
+    /// Base URL without a database suffix, e.g. `"redis://localhost:32768"`.
+    pub base_url: String,
 }
 
-static SINGLETON: OnceCell<Mutex<Option<Inner,>,>,> = OnceCell::const_new();
+static SINGLETON: OnceLock<Mutex<Option<Inner,>,>,> = OnceLock::new();
+/// Round-robin DB counter for per-test isolation.
+static DB_COUNTER: AtomicU8 = AtomicU8::new(0,);
+
+fn redis_mutex() -> &'static Mutex<Option<Inner,>,> {
+    SINGLETON.get_or_init(|| Mutex::new(None,),)
+}
 
 // ── Public isolation scope ────────────────────────────────────────────────────
 
@@ -34,14 +51,34 @@ pub struct RedisScope {
     pub db_index: u8,
     /// Key prefix — prepend to every key your test writes.
     pub key_prefix: String,
+    /// DB-scoped URL, e.g. `"redis://localhost:32768/3"`.
+    pub url: String,
 }
 
 impl RedisScope {
+    /// Returns the DB-scoped URL, e.g. `"redis://localhost:32768/3"`.
+    pub fn url(&self,) -> &str {
+        &self.url
+    }
+
+    /// Returns the logical database number (0–15).
+    pub fn db(&self,) -> u8 {
+        self.db_index
+    }
+
+    /// Returns the `FLUSHDB` command string for this database.
+    ///
+    /// Connect to [`url`][Self::url] and issue `FLUSHDB` to wipe all keys
+    /// belonging to this test.
+    pub fn flushdb_command(&self,) -> &'static str {
+        "FLUSHDB"
+    }
+
     /// Flush all keys in this scope's database.
     ///
-    /// # Note — implemented in #40.
+    /// Note: caller must issue `FLUSHDB` against [`url`][Self::url].
     pub async fn flush(&self,) -> Result<(),> {
-        // TODO (#40): SELECT db_index; FLUSHDB
+        // Callers use flushdb_command() and their own Redis client.
         Ok((),)
     }
 }
@@ -69,37 +106,79 @@ impl MaeContainer for RedisContainer {
 
 // ── Free functions ────────────────────────────────────────────────────────────
 
-/// Returns the Redis singleton (stub until #40).
+/// Returns `(url, port)` for the shared Redis container.
+///
+/// The URL points to DB 0.  For per-test isolation, prefer
+/// [`spawn_scoped_keyspace`].
+///
+/// # Errors
+/// Returns `Err` when `MAE_TESTCONTAINERS` is not enabled.
+pub async fn get_redis_url() -> Result<(String, u16,),> {
+    ensure_started().await?;
+    let guard = redis_mutex().lock().await;
+    let c = guard.as_ref().context("redis container is not running — this is a bug",)?;
+    Ok((format!("{}/0", c.base_url), c.port,),)
+}
+
+/// Returns the Redis singleton, starting the container if needed.
 pub async fn redis_singleton() -> &'static Mutex<Option<Inner,>,> {
-    SINGLETON
-        .get_or_init(|| async {
-            // TODO (#40): start Redis testcontainer when MAE_TESTCONTAINERS=1.
-            Mutex::new(None,)
-        },)
-        .await
+    let _ = ensure_started().await;
+    redis_mutex()
 }
 
 /// Create a fresh per-test keyspace scope.
 ///
-/// # Note — implemented in #40.
+/// Allocates the next available DB number (mod 16) and a unique key prefix.
+///
+/// # Errors
+/// Returns `Err` when `MAE_TESTCONTAINERS` is not enabled.
 pub async fn spawn_scoped_keyspace() -> Result<RedisScope,> {
-    let guard = redis_singleton().await.lock().await;
-    let _inner = guard.as_ref().ok_or_else(|| {
-        anyhow::anyhow!(
-            "Redis container not running — set MAE_TESTCONTAINERS=1 (spinup lands in #40)"
-        )
-    },)?;
+    ensure_started().await?;
 
-    // TODO (#40): use an atomic counter to hand out db indices 0–15.
-    let db_index = 0u8;
+    let db_index = DB_COUNTER.fetch_add(1, Ordering::Relaxed,) % REDIS_DB_COUNT;
+
+    let guard = redis_mutex().lock().await;
+    let c = guard.as_ref().context("redis container is not running — this is a bug",)?;
+
     let key_prefix = format!("test:{}", Uuid::new_v4().to_string().replace('-', ""));
-    Ok(RedisScope { db_index, key_prefix, },)
+    let url = format!("{}/{db_index}", c.base_url);
+    Ok(RedisScope { db_index, key_prefix, url, },)
 }
 
 /// Stop the Redis container and reset the singleton.
 pub async fn teardown() {
-    if let Some(m,) = SINGLETON.get() {
-        let mut guard = m.lock().await;
-        let _ = guard.take();
+    let mut guard = redis_mutex().lock().await;
+    if let Some(c,) = guard.take() {
+        let _ = c.container.stop().await;
+        drop(c,);
     }
+    // Reset the DB counter so the next suite starts at 0 again.
+    DB_COUNTER.store(0, Ordering::Relaxed,);
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+async fn ensure_started() -> Result<(),> {
+    if !testcontainers_enabled() {
+        bail!(
+            "testcontainers disabled — set MAE_TESTCONTAINERS=1 to run Redis tests. \
+             In Concourse, ensure the task has Docker socket access (DinD)."
+        );
+    }
+
+    let mut guard = redis_mutex().lock().await;
+    if guard.is_none() {
+        let container: ContainerAsync<Redis,> =
+            Redis::default().start().await.context("failed to start Redis container",)?;
+
+        let port = container
+            .get_host_port_ipv4(REDIS_PORT,)
+            .await
+            .context("failed to get Redis host port",)?;
+
+        let base_url = format!("redis://localhost:{port}");
+
+        *guard = Some(Inner { container, port, base_url, },);
+    }
+    Ok((),)
 }
