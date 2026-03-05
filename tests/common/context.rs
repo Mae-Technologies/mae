@@ -243,7 +243,7 @@ mod test_context {
     use mae_macros::mae_test;
 
     #[cfg_attr(miri, ignore)]
-    #[mae_test(not_async)]
+    #[mae_test]
     async fn parallelism() -> Result<(),> {
         // Create an isolated schema for this test run.
         let ctx = get_context().await?;
@@ -263,7 +263,7 @@ mod test_context {
     }
 
     #[cfg_attr(miri, ignore)]
-    #[mae_test(not_async)]
+    #[mae_test]
     async fn uses_test_context_schema_isolation() -> Result<(),> {
         // Create an isolated schema for this test run.
         let ctx = get_context().await?;

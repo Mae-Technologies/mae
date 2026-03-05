@@ -16,7 +16,7 @@ pub use sqlx::types::JsonValue as SqlxJson;
 /// expected field types. This is a compile-time smoke test — if the struct fields or
 /// their types change, this test fails to compile before any DB is involved.
 #[cfg_attr(miri, ignore)]
-#[mae_test(not_async)]
+#[mae_test]
 fn should_make_domain_struct() {
     let _my_repo = fixture::RepoExample {
         value: 1,
