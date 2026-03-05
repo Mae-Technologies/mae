@@ -12,6 +12,7 @@ use mae_macros::mae_test;
 use serde_json::Map;
 use sqlx::types::JsonValue as SqlxJson;
 
+#[cfg_attr(miri, ignore)]
 #[mae_test(not_async)]
 fn should_make_domain_struct() {
     let _my_repo = fixture::RepoExample {
