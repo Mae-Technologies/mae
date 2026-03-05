@@ -3,18 +3,18 @@ use crate::common::must::{Must, must_be_true, must_eq};
 use crate::repo::fixture::Field;
 use crate::repo::fixture::{self, RepoExample};
 use anyhow::Result;
-pub use chrono::Utc;
+use chrono::Utc;
 use mae::repo::default::DomainStatus;
 use mae::repo::filter::{Filter, FilterOp};
 use mae::repo::implement::{Execute, Interface};
 use mae::request_context::ContextAccessor;
 use mae_macros::mae_test;
 pub use serde_json::Map;
-// TODO: uncomment these imports
 pub use sqlx::types::JsonValue as SqlxJson;
 
-// TODO: remove me:
-
+/// Validates that the `#[schema]` macro correctly generates a domain struct with the
+/// expected field types. This is a compile-time smoke test — if the struct fields or
+/// their types change, this test fails to compile before any DB is involved.
 #[cfg_attr(miri, ignore)]
 #[mae_test(not_async)]
 fn should_make_domain_struct() {
@@ -34,6 +34,9 @@ fn should_make_domain_struct() {
     };
 }
 
+/// Validates that `insert_one` generates correct SQL and successfully inserts a row,
+/// returning the inserted record via `RETURNING *`. Runs inside a transaction that is
+/// rolled back after the test so no data persists in the test DB.
 #[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_insert() -> Result<(),> {
@@ -52,6 +55,9 @@ async fn should_insert() -> Result<(),> {
     Ok((),)
 }
 
+/// Validates that a SELECT with an ILIKE filter returns an empty result set when
+/// no rows match the pattern. Confirms that the WHERE clause is generated correctly
+/// and that an empty result is not treated as an error.
 #[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_get_empty_records() -> Result<(),> {
@@ -72,6 +78,9 @@ async fn should_get_empty_records() -> Result<(),> {
     Ok((),)
 }
 
+/// Validates the full insert-then-select round-trip: inserts a row and immediately
+/// queries for it using a matching filter. Confirms the inserted row is retrievable
+/// and that the filter bindings are wired up correctly.
 #[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_get_records() -> Result<(),> {
@@ -98,6 +107,8 @@ async fn should_get_records() -> Result<(),> {
     Ok((),)
 }
 
+/// Validates that calling `update_many` without any `.filter(…)` returns an error.
+/// This is a safety guard — an unfiltered UPDATE would overwrite every row in the table.
 #[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_update_without_filters() -> Result<(),> {
@@ -114,6 +125,8 @@ async fn should_error_on_update_without_filters() -> Result<(),> {
     Ok((),)
 }
 
+/// Validates that an `update_many` where every `Option` field in `UpdateRow` is `None`
+/// returns an error. A fully-None update would produce empty SQL and is never intentional.
 #[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_update_with_row_fields_all_none() -> Result<(),> {
@@ -122,8 +135,8 @@ async fn should_error_on_update_with_row_fields_all_none() -> Result<(),> {
     let mut tx = ctx.db_pool.begin().await?;
 
     let data = fixture::UpdateRow {
-        value: None,
         status: None,
+        value: None,
         string_value: None,
         comment: None,
         tags: None,
@@ -138,6 +151,11 @@ async fn should_error_on_update_with_row_fields_all_none() -> Result<(),> {
     res.err().must();
     Ok((),)
 }
+
+/// Validates that `update_many` with a filter succeeds and executes without error.
+/// The inserted row is seeded first so that the UPDATE has at least one row to act on.
+///
+/// Note: result content is not yet asserted — see the TODO below.
 #[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_update() -> Result<(),> {
@@ -160,6 +178,8 @@ async fn should_update() -> Result<(),> {
     Ok((),)
 }
 
+/// Validates that calling `patch` without any `.filter(…)` returns an error containing
+/// the "Unable to Update/Patch" message. Mirrors the equivalent update guard test.
 #[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_patch_without_filters() -> Result<(),> {
@@ -175,6 +195,10 @@ async fn should_error_on_patch_without_filters() -> Result<(),> {
     must_be_true(res.err().must().to_string().contains("Unable to Update/Patch",),);
     Ok((),)
 }
+
+/// Validates that `patch` with an empty `PatchField` vec (i.e. no fields to update)
+/// returns an error. An empty patch would produce a no-op UPDATE with no SET columns,
+/// which the builder rejects as an error rather than silently succeeding.
 #[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_error_on_patch_with_fields_empty() -> Result<(),> {
@@ -192,6 +216,9 @@ async fn should_error_on_patch_with_fields_empty() -> Result<(),> {
     must_be_true(res.err().must().to_string().contains("Unable to Update/Patch",),);
     Ok((),)
 }
+
+/// Validates that a `patch` with filters targeting a non-existent row returns an
+/// empty result set (not an error). Confirms that zero matched rows is a valid outcome.
 #[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn patch_should_return_empty() -> Result<(),> {
@@ -208,6 +235,13 @@ async fn patch_should_return_empty() -> Result<(),> {
     must_be_true(res.is_empty(),);
     Ok((),)
 }
+
+/// Validates that a `patch` with matching filters executes successfully.
+/// Uses `gen_patches()` (partial field set: value, comment, status) to confirm that
+/// only the specified fields are included in the UPDATE — the key behaviour distinguishing
+/// `patch` from `update_many`.
+///
+/// Note: result content is not yet asserted — see the TODO below.
 #[cfg_attr(miri, ignore)]
 #[mae_test]
 async fn should_patch() -> Result<(),> {
