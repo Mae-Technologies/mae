@@ -2229,6 +2229,7 @@ dependencies = [
 [[package]]
 name = "mae_macros"
 version = "0.1.0"
+source = "git+https://github.com/MrCartaaa/mae_macros?branch=main#f4ce0b2ae5e62b78d6a45c71eb68ae23d8770575"
 dependencies = [
  "chrono",
  "proc-macro2",
