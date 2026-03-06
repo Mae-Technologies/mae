@@ -204,6 +204,8 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
 impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> ContextAccessor
     for Builder<'_, C, A, I, U, F, P>
 {
+    type Custom = C::Custom;
+
     fn db_pool(&self) -> &sqlx::PgPool {
         self.ctx.db_pool()
     }
@@ -212,6 +214,9 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
     }
     fn session_user(&self) -> &i32 {
         self.ctx.session_user()
+    }
+    fn custom(&self) -> &Self::Custom {
+        self.ctx.custom()
     }
 }
 
