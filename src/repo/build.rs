@@ -36,7 +36,6 @@ use crate::request_context::ContextAccessor;
 use super::map_util::{BindArgs, FilterOp, SqlStatement, concat_sql_parts, sql_where};
 use super::type_def::{Context, QueryAs, ToField, ToInsertRow, ToPatch, ToUpdateRow};
 
-
 // /////
 // ORDER BY support
 //  ////
@@ -264,7 +263,7 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
     fn filters(&self,) -> &Vec<FilterOp<F,>,> {
         &self.filters
     }
-    fn order_by_clause(&self,) -> Option<&(String, OrderDir,)> {
+    fn order_by_clause(&self,) -> Option<&(String, OrderDir,),> {
         self.order_by.as_ref()
     }
 }
@@ -284,7 +283,7 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> {
     fn statement(&self,) -> &SqlStatement<I, U, F, P,>;
     fn filters(&self,) -> &Vec<FilterOp<F,>,>;
     fn schema(&self,) -> &String;
-    fn order_by_clause(&self,) -> Option<&(String, OrderDir,)>;
+    fn order_by_clause(&self,) -> Option<&(String, OrderDir,),>;
     fn to_sql(&self,) -> Result<String,> {
         Ok(match &self.statement() {
             SqlStatement::Select(field_blocks,) => {
