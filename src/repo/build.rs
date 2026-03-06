@@ -37,6 +37,32 @@ use super::map_util::{BindArgs, FilterOp, SqlStatement, concat_sql_parts, sql_wh
 use super::type_def::{Context, QueryAs, ToField, ToInsertRow, ToPatch, ToUpdateRow};
 
 // /////
+// ORDER BY support
+//  ////
+
+/// Direction for `ORDER BY` clauses.
+///
+/// Use [`OrderDir::Asc`] for ascending order (the SQL default) and
+/// [`OrderDir::Desc`] for descending order.
+#[derive(Debug, Clone, Copy,)]
+pub enum OrderDir {
+    /// Ascending order — `ORDER BY <col> ASC`
+    Asc,
+    /// Descending order — `ORDER BY <col> DESC`
+    Desc,
+}
+
+impl OrderDir {
+    /// Return the SQL keyword for this direction.
+    pub fn as_sql(&self,) -> &'static str {
+        match self {
+            OrderDir::Asc => "ASC",
+            OrderDir::Desc => "DESC",
+        }
+    }
+}
+
+// /////
 // INTERFACE TO THE SCHEMA def
 //  ////
 
@@ -68,6 +94,7 @@ pub trait Build<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPat
             ctx,
             query_as: PhantomData,
             returning: None,
+            order_by: None,
         }
     }
     /// Return the fully-qualified SQL schema/table name for this domain type
@@ -181,6 +208,8 @@ pub struct Builder<
     ctx: &'a C,
     query_as: PhantomData<fn() -> A,>,
     returning: Option<Vec<F,>,>,
+    /// Optional `ORDER BY` clause — column name and direction.
+    order_by: Option<(String, OrderDir,),>,
 }
 
 impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,>
@@ -197,6 +226,13 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
     /// Override the default `RETURNING *` clause with a specific column list.
     pub fn returning(mut self, values: Vec<F,>,) -> Self {
         self.returning = Some(values,);
+        self
+    }
+    /// Set an `ORDER BY <column> <dir>` clause on this query.
+    ///
+    /// Only applied to `SELECT` statements; ignored for INSERT/UPDATE/PATCH.
+    pub fn order_by(mut self, column: impl Into<String,>, dir: OrderDir,) -> Self {
+        self.order_by = Some((column.into(), dir,),);
         self
     }
 }
@@ -227,6 +263,9 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
     fn filters(&self,) -> &Vec<FilterOp<F,>,> {
         &self.filters
     }
+    fn order_by_clause(&self,) -> Option<&(String, OrderDir,),> {
+        self.order_by.as_ref()
+    }
 }
 
 impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,>
@@ -244,6 +283,7 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> {
     fn statement(&self,) -> &SqlStatement<I, U, F, P,>;
     fn filters(&self,) -> &Vec<FilterOp<F,>,>;
     fn schema(&self,) -> &String;
+    fn order_by_clause(&self,) -> Option<&(String, OrderDir,),>;
     fn to_sql(&self,) -> Result<String,> {
         Ok(match &self.statement() {
             SqlStatement::Select(field_blocks,) => {
@@ -256,7 +296,11 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> {
                     },)
                     .collect::<Result<Vec<_,>,>>()?
                     .join(",\n\t",);
-                format!("SELECT\n\t{}\nFROM {}{};", &fields, self.schema(), where_str,)
+                let order_str = self
+                    .order_by_clause()
+                    .map(|(col, dir,)| format!("\nORDER BY {} {}", col, dir.as_sql(),),)
+                    .unwrap_or_default();
+                format!("SELECT\n\t{}\nFROM {}{}{};", &fields, self.schema(), where_str, order_str,)
             }
             SqlStatement::InsertOne(row,) => {
                 let (mut fields, bind_idx_option,) = row.to_sql_parts();
@@ -513,5 +557,20 @@ where
         write!(f, "\n{}", "*".repeat(18))?;
         write!(f, "\n{}\n", "*".repeat(18))?;
         std::fmt::Result::Ok((),)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn order_dir_as_sql_asc() {
+        assert_eq!(OrderDir::Asc.as_sql(), "ASC");
+    }
+
+    #[test]
+    fn order_dir_as_sql_desc() {
+        assert_eq!(OrderDir::Desc.as_sql(), "DESC");
     }
 }
