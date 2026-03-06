@@ -12,7 +12,7 @@ pub mod filter {
 
 pub mod implement {
     use super::*;
-    pub use build::{Execute, Interface, KeyAuths};
+    pub use build::{Execute, Interface, KeyAuths, OrderDir};
     pub use type_def::ToField;
 }
 
