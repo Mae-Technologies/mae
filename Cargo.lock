@@ -2266,7 +2266,7 @@ dependencies = [
 [[package]]
 name = "mae_macros"
 version = "0.1.0"
-source = "git+https://github.com/Mae-Technologies/mae_macros.git#9e1735a777e255f599bca7a8b3a3e941a9c97b78"
+source = "git+https://github.com/Mae-Technologies/mae_macros.git?branch=feature%2F25-bindargs-bind-returns-result#7c2d2733d64d713596bc7b0f5a54c3eabbef92f3"
 dependencies = [
  "chrono",
  "proc-macro2",

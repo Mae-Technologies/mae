@@ -10,8 +10,7 @@ use std::fmt::{Debug, Display};
 //  - BindArgs
 //      If there are arguments, they need to be safely inserted into the SQL Query with PgArguments
 pub trait BindArgs {
-    // TODO: if any of these are to panic, this method should return a Result
-    fn bind(&self, args: &mut sqlx::postgres::PgArguments,);
+    fn bind(&self, args: &mut sqlx::postgres::PgArguments,) -> Result<(), anyhow::Error,>;
     fn bind_len(&self,) -> usize;
 }
 
@@ -62,18 +61,27 @@ impl<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> BindArgs
 {
     // Bind the Statement values to the query
     // (Ie - Struct{value: 1} or Enum::value(1)) -> iter.v / v -> PgArguments.add(v)
-    fn bind(&self, args: &mut sqlx::postgres::PgArguments,) {
+    fn bind(&self, args: &mut sqlx::postgres::PgArguments,) -> Result<(), anyhow::Error,> {
         match self {
             Self::Select(v,) => {
                 for ele in v {
-                    let _ = args.add(ele.to_string(),);
+                    args.add(ele.to_string(),).map_err(|e| anyhow::anyhow!("{}", e),)?;
                 }
             }
-            Self::InsertOne(v,) => v.bind(args,),
-            Self::InsertMany(v,) => v.iter().for_each(|f| f.bind(args,),),
-            Self::Update(v,) => v.bind(args,),
-            Self::Patch(v,) => v.iter().for_each(|f| f.bind(args,),),
+            Self::InsertOne(v,) => v.bind(args,)?,
+            Self::InsertMany(v,) => {
+                for f in v {
+                    f.bind(args,)?;
+                }
+            }
+            Self::Update(v,) => v.bind(args,)?,
+            Self::Patch(v,) => {
+                for f in v {
+                    f.bind(args,)?;
+                }
+            }
         }
+        Ok((),)
     }
 
     // Get the count of arg's that are to be bound
@@ -132,24 +140,25 @@ pub enum Filter {
 }
 
 impl BindArgs for Filter {
-    fn bind(&self, args: &mut sqlx::postgres::PgArguments,) {
-        let _ = match self {
-            Self::Equals(v,) => args.add(v,),
-            Self::NotEquals(v,) => args.add(v,),
-            Self::In(v,) => args.add(v,),
-            Self::NotIn(v,) => args.add(v,),
-            Self::Like(v,) => args.add(v,),
-            Self::NotLike(v,) => args.add(v,),
-            Self::Ilike(v,) => args.add(v,),
-            Self::NotIlike(v,) => args.add(v,),
-            Self::StringIs(v,) => args.add(v.to_owned(),),
-            Self::StringIsNot(v,) => args.add(v,),
-            Self::Gt(v,) => args.add(v,),
-            Self::Gte(v,) => args.add(v,),
-            Self::Lt(v,) => args.add(v,),
-            Self::Lte(v,) => args.add(v,),
-            Self::IsNull => Ok((),),
-        };
+    fn bind(&self, args: &mut sqlx::postgres::PgArguments,) -> Result<(), anyhow::Error,> {
+        match self {
+            Self::Equals(v,) => args.add(v,).map_err(|e| anyhow::anyhow!("{}", e),)?,
+            Self::NotEquals(v,) => args.add(v,).map_err(|e| anyhow::anyhow!("{}", e),)?,
+            Self::In(v,) => args.add(v,).map_err(|e| anyhow::anyhow!("{}", e),)?,
+            Self::NotIn(v,) => args.add(v,).map_err(|e| anyhow::anyhow!("{}", e),)?,
+            Self::Like(v,) => args.add(v,).map_err(|e| anyhow::anyhow!("{}", e),)?,
+            Self::NotLike(v,) => args.add(v,).map_err(|e| anyhow::anyhow!("{}", e),)?,
+            Self::Ilike(v,) => args.add(v,).map_err(|e| anyhow::anyhow!("{}", e),)?,
+            Self::NotIlike(v,) => args.add(v,).map_err(|e| anyhow::anyhow!("{}", e),)?,
+            Self::StringIs(v,) => args.add(v.to_owned(),).map_err(|e| anyhow::anyhow!("{}", e),)?,
+            Self::StringIsNot(v,) => args.add(v,).map_err(|e| anyhow::anyhow!("{}", e),)?,
+            Self::Gt(v,) => args.add(v,).map_err(|e| anyhow::anyhow!("{}", e),)?,
+            Self::Gte(v,) => args.add(v,).map_err(|e| anyhow::anyhow!("{}", e),)?,
+            Self::Lt(v,) => args.add(v,).map_err(|e| anyhow::anyhow!("{}", e),)?,
+            Self::Lte(v,) => args.add(v,).map_err(|e| anyhow::anyhow!("{}", e),)?,
+            Self::IsNull => {}
+        }
+        Ok((),)
     }
     fn bind_len(&self,) -> usize {
         match self {
@@ -231,7 +240,7 @@ impl<F: ToField,> Debug for FilterOp<F,> {
 }
 
 impl<F: ToField,> BindArgs for FilterOp<F,> {
-    fn bind(&self, args: &mut sqlx::postgres::PgArguments,) {
+    fn bind(&self, args: &mut sqlx::postgres::PgArguments,) -> Result<(), anyhow::Error,> {
         match self {
             Self::Begin(_, w,) => w.bind(args,),
             Self::And(_, w,) => w.bind(args,),
