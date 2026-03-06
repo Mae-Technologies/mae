@@ -341,21 +341,21 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> {
             }
         },)
     }
-    fn args(&self, session_user: &i32,) -> sqlx::postgres::PgArguments {
+    fn args(&self, session_user: &i32,) -> Result<sqlx::postgres::PgArguments,> {
         let mut args = sqlx::postgres::PgArguments::default();
         match self.statement() {
             SqlStatement::Select(_,) => {}
             _ => {
-                self.statement().bind(&mut args,);
+                self.statement().bind(&mut args,)?;
                 // Always bind session_user last for INSERT (created_by) and UPDATE/PATCH
                 // (updated_by). The placeholder is the final positional param in to_sql().
                 let _ = args.add(session_user,);
             }
         };
         for w in self.filters().iter() {
-            w.bind(&mut args,);
+            w.bind(&mut args,)?;
         }
-        args
+        Ok(args,)
     }
 }
 
@@ -409,7 +409,7 @@ pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToF
             let sql = self.to_sql()?;
             let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments,>(
                 &sql,
-                self.args(self.session_user(),),
+                self.args(self.session_user(),)?,
             );
             let res: anyhow::Result<Vec<A,>,> = req
                 .fetch_all(exec,)
