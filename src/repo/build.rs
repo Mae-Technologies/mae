@@ -292,13 +292,19 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> {
                     },)
                     .collect::<Result<Vec<_,>,>>()?
                     .join(",\n\t",);
-                let limit_offset = match (self.limit(), self.offset()) {
-                    (Some(l), Some(o)) => format!("\nLIMIT {l} OFFSET {o}"),
-                    (Some(l), None) => format!("\nLIMIT {l}"),
-                    (None, Some(o)) => format!("\nOFFSET {o}"),
-                    (None, None) => String::new(),
+                let limit_offset = match (self.limit(), self.offset(),) {
+                    (Some(l,), Some(o,),) => format!("\nLIMIT {l} OFFSET {o}"),
+                    (Some(l,), None,) => format!("\nLIMIT {l}"),
+                    (None, Some(o,),) => format!("\nOFFSET {o}"),
+                    (None, None,) => String::new(),
                 };
-                format!("SELECT\n\t{}\nFROM {}{}{};", &fields, self.schema(), where_str, limit_offset,)
+                format!(
+                    "SELECT\n\t{}\nFROM {}{}{};",
+                    &fields,
+                    self.schema(),
+                    where_str,
+                    limit_offset,
+                )
             }
             SqlStatement::InsertOne(row,) => {
                 let (mut fields, bind_idx_option,) = row.to_sql_parts();
@@ -637,7 +643,10 @@ mod tests {
     #[test]
     fn select_no_limit_no_offset() {
         let q = MockQuery::select("public.users", vec![Col("id",)],);
-        let sql = q.to_sql().expect("to_sql failed",);
+        let sql = match q.to_sql() {
+            std::result::Result::Ok(sql,) => sql,
+            Err(e,) => panic!("to_sql failed: {e:?}"),
+        };
         assert!(!sql.contains("LIMIT"), "unexpected LIMIT in: {sql}");
         assert!(!sql.contains("OFFSET"), "unexpected OFFSET in: {sql}");
     }
@@ -647,7 +656,10 @@ mod tests {
     fn select_limit_only() {
         let mut q = MockQuery::select("public.orders", vec![Col("id",)],);
         q.limit = Some(10,);
-        let sql = q.to_sql().expect("to_sql failed",);
+        let sql = match q.to_sql() {
+            std::result::Result::Ok(sql,) => sql,
+            Err(e,) => panic!("to_sql failed: {e:?}"),
+        };
         assert!(sql.contains("LIMIT 10"), "expected LIMIT 10 in:\n{sql}");
         assert!(!sql.contains("OFFSET"), "unexpected OFFSET in:\n{sql}");
     }
@@ -657,7 +669,10 @@ mod tests {
     fn select_offset_only() {
         let mut q = MockQuery::select("public.orders", vec![Col("id",)],);
         q.offset = Some(20,);
-        let sql = q.to_sql().expect("to_sql failed",);
+        let sql = match q.to_sql() {
+            std::result::Result::Ok(sql,) => sql,
+            Err(e,) => panic!("to_sql failed: {e:?}"),
+        };
         assert!(sql.contains("OFFSET 20"), "expected OFFSET 20 in:\n{sql}");
         assert!(!sql.contains("LIMIT"), "unexpected LIMIT in:\n{sql}");
     }
@@ -668,11 +683,11 @@ mod tests {
         let mut q = MockQuery::select("public.items", vec![Col("name",)],);
         q.limit = Some(5,);
         q.offset = Some(15,);
-        let sql = q.to_sql().expect("to_sql failed",);
-        assert!(
-            sql.contains("LIMIT 5 OFFSET 15"),
-            "expected 'LIMIT 5 OFFSET 15' in:\n{sql}"
-        );
+        let sql = match q.to_sql() {
+            std::result::Result::Ok(sql,) => sql,
+            Err(e,) => panic!("to_sql failed: {e:?}"),
+        };
+        assert!(sql.contains("LIMIT 5 OFFSET 15"), "expected 'LIMIT 5 OFFSET 15' in:\n{sql}");
     }
 
     /// `LIMIT/OFFSET` must appear after the WHERE clause, not before it.
@@ -682,13 +697,19 @@ mod tests {
         q.filters = vec![FilterOp::Begin(Col("active",), Filter::IsNull,)];
         q.limit = Some(3,);
         q.offset = Some(6,);
-        let sql = q.to_sql().expect("to_sql failed",);
-        let where_pos = sql.find("WHERE").expect("expected WHERE",);
-        let limit_pos = sql.find("LIMIT").expect("expected LIMIT",);
-        assert!(
-            limit_pos > where_pos,
-            "LIMIT must appear after WHERE — got:\n{sql}"
-        );
+        let sql = match q.to_sql() {
+            std::result::Result::Ok(sql,) => sql,
+            Err(e,) => panic!("to_sql failed: {e:?}"),
+        };
+        let where_pos = match sql.find("WHERE",) {
+            Some(pos,) => pos,
+            None => panic!("expected WHERE in: {sql}"),
+        };
+        let limit_pos = match sql.find("LIMIT",) {
+            Some(pos,) => pos,
+            None => panic!("expected LIMIT in: {sql}"),
+        };
+        assert!(limit_pos > where_pos, "LIMIT must appear after WHERE — got:\n{sql}");
     }
 
     /// Default `ToSql` trait implementations return `None` for limit/offset.
