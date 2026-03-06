@@ -40,21 +40,16 @@ pub fn concat_sql_parts(parts: Vec<(Vec<String,>, Option<Vec<String,>,>,),>,) ->
 
 // SQL Statements
 pub enum SqlStatement<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> {
-    // TODO: I want an upsert() in here -> Insert, Update on conflict:
-    // INSERT INTO users (email, name)
-    // VALUES
-    //   ('a@x.com', 'Alice'),
-    //   ('b@x.com', 'Bob')
-    // ON CONFLICT (email)
-    // DO UPDATE SET
-    //   name = EXCLUDED.name,
-    //   updated_at = now()
-    // RETURNING *;
     Select(Vec<F,>,),
     InsertOne(I,),
     InsertMany(Vec<I,>,),
     Update(U,),
     Patch(Vec<P,>,),
+    /// `INSERT INTO … ON CONFLICT (conflict_col) DO UPDATE SET … RETURNING *`
+    ///
+    /// The `String` field names the conflict column used in the `ON CONFLICT` clause.
+    /// All non-conflict, non-`created_by` columns are included in `DO UPDATE SET`.
+    Upsert(I, String,),
 }
 
 impl<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> BindArgs
@@ -73,6 +68,7 @@ impl<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> BindArgs
             Self::InsertMany(v,) => v.iter().for_each(|f| f.bind(args,),),
             Self::Update(v,) => v.bind(args,),
             Self::Patch(v,) => v.iter().for_each(|f| f.bind(args,),),
+            Self::Upsert(v, _,) => v.bind(args,),
         }
     }
 
@@ -85,6 +81,7 @@ impl<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> BindArgs
             Self::Select(_,) => 0,
             Self::InsertMany(v,) => v.iter().map(|v| v.bind_len(),).sum(),
             Self::Patch(v,) => v.len(),
+            Self::Upsert(v, _,) => v.bind_len(),
         }
     }
 }
@@ -107,6 +104,10 @@ impl<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> Debug for SqlState
                     std::fmt::Debug::fmt(field, f,)?;
                 }
                 std::fmt::Result::Ok((),)
+            }
+            SqlStatement::Upsert(row, conflict_col,) => {
+                write!(f, "upsert on conflict ({conflict_col}): ")?;
+                std::fmt::Debug::fmt(&row, f,)
             }
         }
     }

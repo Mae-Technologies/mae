@@ -149,6 +149,14 @@ pub trait Interface<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: T
     fn patch(ctx: &C, recs: Vec<P,>,) -> Builder<'_, C, Self, I, U, F, P,> {
         Self::build(ctx, SqlStatement::Patch(recs,),)
     }
+
+    /// Build an `INSERT INTO … ON CONFLICT (conflict_col) DO UPDATE SET … RETURNING *` statement.
+    ///
+    /// Identical to `insert_one` for new rows; on conflict it updates every non-conflict,
+    /// non-`created_by` column to `EXCLUDED.<col>`.
+    fn upsert(ctx: &C, rec: I, conflict_col: String,) -> Builder<'_, C, Self, I, U, F, P,> {
+        Self::build(ctx, SqlStatement::<I, U, F, P,>::Upsert(rec, conflict_col,),)
+    }
 }
 
 // Blanket impl: every type that satisfies Build automatically gets Interface for free.
@@ -305,6 +313,34 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> {
                 let schema = self.schema();
                 format!(
                     "UPDATE {schema} _x_\n\tSET {f_f}\n\tFROM\n\t\t(VALUES ({v}))\n\tAS _z_ (\n\t\t {f}\n\t\t){where_str}\nRETURNING *;"
+                )
+            }
+            // SqlStatement::Upsert: INSERT with ON CONFLICT DO UPDATE SET.
+            // All row columns (except the conflict column and created_by) are written
+            // to EXCLUDED.<col> on conflict. created_by is only set on initial insert.
+            SqlStatement::Upsert(row, conflict_col,) => {
+                let (mut fields, bind_idx_option,) = row.to_sql_parts();
+                let mut bind_idx =
+                    bind_idx_option.ok_or_else(|| anyhow!("cannot find binding index"),)?;
+                // Append `created_by` — sourced from session user, set on insert only.
+                fields.push("created_by".into(),);
+                let last_idx = bind_idx.len();
+                bind_idx.push(format!("${}", last_idx + 1),);
+                let fields_str = fields.join(
+                    ",
+	 ",
+                );
+                let bind_idx_str = bind_idx.join(", ",);
+                // Build DO UPDATE SET for every column except conflict col and created_by.
+                let update_set = fields
+                    .iter()
+                    .filter(|c| c.as_str() != conflict_col.as_str() && c.as_str() != "created_by",)
+                    .map(|c| format!("\n\t\t{c} = EXCLUDED.{c}"),)
+                    .collect::<Vec<_,>>()
+                    .join(", ",);
+                format!(
+                    "INSERT INTO {schema}\n\t(\n\t {fields_str}\n\t)\n\tVALUES ({bind_idx_str})\nON CONFLICT ({conflict_col})\nDO UPDATE SET{update_set}\nRETURNING *;",
+                    schema = self.schema(),
                 )
             }
             // SqlStatement::Patch: PARTIAL update — only the PatchField variants supplied
@@ -513,5 +549,128 @@ where
         write!(f, "\n{}", "*".repeat(18))?;
         write!(f, "\n{}\n", "*".repeat(18))?;
         std::fmt::Result::Ok((),)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods)]
+mod tests {
+    use super::*;
+    use crate::repo::map_util::{AsSqlParts, BindArgs, ToSqlParts};
+    use std::fmt::Debug;
+
+    // ── Minimal stubs ──────────────────────────────────────────────────────────
+
+    /// Minimal insert-row stub with two columns: `email` and `name`.
+    #[derive(Debug,)]
+    struct StubRow;
+
+    impl ToSqlParts for StubRow {
+        fn to_sql_parts(&self,) -> AsSqlParts {
+            (vec!["email".into(), "name".into()], Some(vec!["$1".into(), "$2".into()],),)
+        }
+    }
+
+    impl BindArgs for StubRow {
+        fn bind(&self, _args: &mut sqlx::postgres::PgArguments,) {}
+        fn bind_len(&self,) -> usize {
+            2
+        }
+    }
+
+    // Stub ToSql impl ------------------------------------------------------------
+    struct StubSql {
+        statement: SqlStatement<StubRow, StubRow, StubField, StubPatch,>,
+        filters: Vec<FilterOp<StubField,>,>,
+        schema: String,
+    }
+
+    impl ToSql<StubRow, StubRow, StubField, StubPatch,> for StubSql {
+        fn statement(&self,) -> &SqlStatement<StubRow, StubRow, StubField, StubPatch,> {
+            &self.statement
+        }
+        fn filters(&self,) -> &Vec<FilterOp<StubField,>,> {
+            &self.filters
+        }
+        fn schema(&self,) -> &String {
+            &self.schema
+        }
+    }
+
+    // Stub Field (needed for type params) ----------------------------------------
+    #[derive(Debug,)]
+    struct StubField;
+    impl ToSqlParts for StubField {
+        fn to_sql_parts(&self,) -> AsSqlParts {
+            (vec![], None,)
+        }
+    }
+    impl std::fmt::Display for StubField {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_,>,) -> std::fmt::Result {
+            write!(f, "stub_field")
+        }
+    }
+
+    // Stub Patch -----------------------------------------------------------------
+    #[derive(Debug,)]
+    struct StubPatch;
+    impl ToSqlParts for StubPatch {
+        fn to_sql_parts(&self,) -> AsSqlParts {
+            (vec![], None,)
+        }
+    }
+    impl BindArgs for StubPatch {
+        fn bind(&self, _args: &mut sqlx::postgres::PgArguments,) {}
+        fn bind_len(&self,) -> usize {
+            0
+        }
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
+
+    fn make_upsert(conflict_col: &str,) -> StubSql {
+        StubSql {
+            statement: SqlStatement::Upsert(StubRow, conflict_col.into(),),
+            filters: vec![],
+            schema: "users".into(),
+        }
+    }
+
+    // ── Tests ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn upsert_sql_contains_on_conflict_clause() {
+        let sql = make_upsert("email",).to_sql().unwrap_or_else(|e| panic!("to_sql failed: {e}"),);
+        assert!(sql.contains("ON CONFLICT (email)"), "missing ON CONFLICT: {sql}");
+        assert!(sql.contains("DO UPDATE SET"), "missing DO UPDATE SET: {sql}");
+        assert!(sql.contains("EXCLUDED.name"), "missing EXCLUDED.name: {sql}");
+        assert!(sql.contains("RETURNING *"), "missing RETURNING *: {sql}");
+    }
+
+    #[test]
+    fn upsert_sql_excludes_conflict_col_from_update_set() {
+        let sql = make_upsert("email",).to_sql().unwrap_or_else(|e| panic!("to_sql failed: {e}"),);
+        // `email` must appear in the INSERT column list but NOT in DO UPDATE SET
+        assert!(sql.contains("email"), "email missing from INSERT cols: {sql}");
+        // The DO UPDATE SET section must not assign email = EXCLUDED.email
+        let do_update_idx =
+            sql.find("DO UPDATE SET",).unwrap_or_else(|| panic!("DO UPDATE SET not found in sql"),);
+        let after_do_update = &sql[do_update_idx..];
+        assert!(
+            !after_do_update.contains("email = EXCLUDED.email"),
+            "conflict col must not appear in DO UPDATE SET: {sql}",
+        );
+    }
+
+    #[test]
+    fn upsert_sql_excludes_created_by_from_update_set() {
+        let sql = make_upsert("email",).to_sql().unwrap_or_else(|e| panic!("to_sql failed: {e}"),);
+        let do_update_idx =
+            sql.find("DO UPDATE SET",).unwrap_or_else(|| panic!("DO UPDATE SET not found in sql"),);
+        let after = &sql[do_update_idx..];
+        assert!(
+            !after.contains("created_by = EXCLUDED.created_by"),
+            "created_by must not appear in DO UPDATE SET: {sql}",
+        );
     }
 }
