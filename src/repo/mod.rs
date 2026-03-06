@@ -1,6 +1,7 @@
 pub mod default;
 
 mod build;
+mod into_filter;
 mod map_util;
 // mod sql_parts;
 mod type_def;
@@ -25,5 +26,6 @@ pub mod __private__ {
     use super::*;
     pub use build::Build;
     // TODO: AsSqlParts should be a type;
+    pub use into_filter::IntoMaeFilter;
     pub use map_util::{AsSqlParts, BindArgs, ToSqlParts};
 }
