@@ -10,13 +10,6 @@ pub async fn get_context() -> Result<Ctx> {
     mae::testing::context::get_context::<TestContext>().await
 }
 
-/// Teardown hook used by `#[mae_test(teardown = ...)]`.
-///
-/// This ensures testcontainers are cleaned even if the test exits early.
-pub async fn teardown() {
-    mae::testing::container::teardown_all().await;
-}
-
 #[cfg(test)]
 mod test_context {
     use anyhow::Result;
@@ -27,7 +20,7 @@ mod test_context {
     use super::get_context;
 
     #[cfg_attr(miri, ignore)]
-    #[mae_test(docker, teardown = crate::common::context::teardown)]
+    #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
     async fn parallelism() -> Result<()> {
         let ctx = get_context().await?;
         let mut conn = ctx.custom.scoped_connection().await?;
@@ -39,7 +32,7 @@ mod test_context {
     }
 
     #[cfg_attr(miri, ignore)]
-    #[mae_test(docker, teardown = crate::common::context::teardown)]
+    #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
     async fn uses_test_context_schema_isolation() -> Result<()> {
         let ctx = get_context().await?;
         let mut conn = ctx.custom.scoped_connection().await?;
