@@ -3,12 +3,10 @@
 use crate::testing::{env, must::MustExpect};
 use anyhow::{Context, Result};
 use sqlx::{Connection, Executor, PgConnection, PgPool};
-use std::io::IsTerminal;
 use std::sync::Arc;
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt};
-use tokio::process::Command;
 use tokio::sync::{Mutex, OnceCell};
 use uuid::Uuid;
 
@@ -170,65 +168,20 @@ pub fn shared_pool_arc() -> Option<Arc<PgPool>> {
 // ── Pre-migration script ──────────────────────────────────────────────────────
 
 async fn run_premigration(inner: &Inner) -> Result<()> {
-    let script_path = "./scripts/sqlx_premigration.sh";
-
-    let stdout_is_tty = std::io::stdout().is_terminal();
-    let stderr_is_tty = std::io::stderr().is_terminal();
-
-    let mut cmd = Command::new("bash");
-    cmd.arg(script_path);
-
     let port =
         inner.container.get_host_port_ipv4(5432).await.context("failed to get container port")?;
 
     let e = env::load();
+    let migrator_url = e.database_url_with_port(port);
+    let migrator_pool =
+        PgPool::connect(&migrator_url).await.context("failed to connect migrator pool")?;
 
-    cmd.env("NO_DOT_ENV", "1")
-        .env("CONTAINER", &inner.id)
-        .env("DEBUG", "1")
-        .env("RUN_APP_MIGRATIONS", "1")
-        .env("TTY_OVERRIDE", "1")
-        .env("ADMIN_MIGRATIONS_PATH", &e.admin_migrations_path)
-        .env("APP_MIGRATIONS_PATH", &e.app_migrations_path)
-        .env("DB_HOST", &e.db_host)
-        .env("DB_PORT", port.to_string())
-        .env("APP_DB_NAME", &e.app_db_name)
-        .env("SUPER_USER", &e.superuser)
-        .env("SUPERUSER_PWD", &e.superuser_pwd)
-        .env("MIGRATOR_USER", &e.migrator_user)
-        .env("MIGRATOR_PWD", &e.migrator_pwd)
-        .env("APP_USER", &e.app_user)
-        .env("APP_USER_PWD", &e.app_user_pwd)
-        .env("TABLE_PROVISIONER_USER", &e.table_provisioner_user)
-        .env("TABLE_PROVISIONER_PWD", &e.table_provisioner_pwd)
-        .env("SUPER_DATABASE_URL", e.super_database_url_with_port(port))
-        .env("SEARCH_PATH", &e.search_path)
-        .env("DATABASE_URL", e.database_url_with_port(port))
-        .env("APP_DATABASE_URL", e.app_database_url_with_port(port))
-        .env("TABLE_CREATOR_DATABASE_URL", e.table_creator_database_url_with_port(port));
+    sqlx::migrate!("./migrations")
+        .run(&migrator_pool)
+        .await
+        .context("service migrations failed")?;
 
-    if stdout_is_tty {
-        cmd.stdout(std::process::Stdio::inherit());
-    } else {
-        cmd.stdout(std::process::Stdio::piped());
-    }
-    if stderr_is_tty {
-        cmd.stderr(std::process::Stdio::inherit());
-    } else {
-        cmd.stderr(std::process::Stdio::piped());
-    }
-
-    let output = cmd.output().await.with_context(|| format!("failed to spawn {script_path}"))?;
-
-    if !output.status.success() {
-        if !stdout_is_tty && !output.stdout.is_empty() {
-            eprintln!("--- premigration stdout ---\n{}", String::from_utf8_lossy(&output.stdout));
-        }
-        if !stderr_is_tty && !output.stderr.is_empty() {
-            eprintln!("--- premigration stderr ---\n{}", String::from_utf8_lossy(&output.stderr));
-        }
-        anyhow::bail!("premigration script exited with status: {}", output.status);
-    }
+    migrator_pool.close().await;
 
     Ok(())
 }
