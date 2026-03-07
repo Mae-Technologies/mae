@@ -24,13 +24,13 @@ warn() { printf "${YELLOW}%s${RESET}\n" "$*"; }
 err() { printf "${RED}%s${RESET}\n" "$*" >&2; }
 
 # ────────────────────────────────────────────────
-# Only run logic when on main or master
+# Only run logic when on main
 # ────────────────────────────────────────────────
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 
-if [[ "$CURRENT_BRANCH" != "main" && "$CURRENT_BRANCH" != "master" ]]; then
+if [[ "$CURRENT_BRANCH" != "main" ]]; then
   # Optional: show a quiet message (comment out if you want zero output on feature branches)
-  info "Not on main/master (on $CURRENT_BRANCH) → skipping pre-commit check"
+  info "Not on main (on $CURRENT_BRANCH) → skipping pre-commit check"
   exit 0
 fi
 

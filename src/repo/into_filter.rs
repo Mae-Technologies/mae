@@ -43,3 +43,39 @@ impl IntoMaeFilter for Option<String> {
         }
     }
 }
+
+impl IntoMaeFilter for crate::repo::default::DomainStatus {
+    fn into_mae_filter(self) -> Filter {
+        let v = match self {
+            crate::repo::default::DomainStatus::Incomplete => "incomplete",
+            crate::repo::default::DomainStatus::Active => "active",
+            crate::repo::default::DomainStatus::Deleted => "deleted",
+            crate::repo::default::DomainStatus::Archived => "archived"
+        };
+        Filter::StringIs(v.to_string())
+    }
+}
+
+impl IntoMaeFilter for Option<crate::repo::default::DomainStatus> {
+    fn into_mae_filter(self) -> Filter {
+        match self {
+            Some(v) => v.into_mae_filter(),
+            None => Filter::IsNull
+        }
+    }
+}
+
+impl IntoMaeFilter for serde_json::Value {
+    fn into_mae_filter(self) -> Filter {
+        Filter::StringIs(self.to_string())
+    }
+}
+
+impl IntoMaeFilter for Option<serde_json::Value> {
+    fn into_mae_filter(self) -> Filter {
+        match self {
+            Some(v) => Filter::StringIs(v.to_string()),
+            None => Filter::IsNull
+        }
+    }
+}

@@ -5,9 +5,9 @@ use anyhow::{Context, Result};
 use sqlx::{Connection, Executor, PgConnection, PgPool};
 use std::io::IsTerminal;
 use std::sync::Arc;
+use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
-use testcontainers::{ContainerAsync, ImageExt};
-use testcontainers_modules::postgres::Postgres;
+use testcontainers::{ContainerAsync, GenericImage, ImageExt};
 use tokio::process::Command;
 use tokio::sync::{Mutex, OnceCell};
 use uuid::Uuid;
@@ -17,7 +17,7 @@ use super::MaeContainer;
 // ── Singleton ─────────────────────────────────────────────────────────────────
 
 pub struct Inner {
-    pub container: ContainerAsync<Postgres>,
+    pub container: ContainerAsync<GenericImage>,
     pub id: String,
     pub port: u16
 }
@@ -82,14 +82,26 @@ pub async fn pg_singleton() -> &'static Mutex<Option<Inner>> {
             let conf = env::load();
             let id = format!("mae_pg_{}", Uuid::new_v4().to_string().replace('-', ""));
 
-            let container: ContainerAsync<Postgres> = Postgres::default()
-                .with_user(conf.superuser.as_str())
-                .with_password(conf.superuser_pwd.as_str())
-                .with_db_name(conf.app_db_name.as_str())
+            let image = GenericImage::new("ghcr.io/mae-technologies/postgres-mae", "latest")
+                .with_exposed_port(5432.tcp())
+                .with_wait_for(WaitFor::message_on_stderr(
+                    "database system is ready to accept connections"
+                ));
+
+            let container: ContainerAsync<GenericImage> = image
+                .with_env_var("POSTGRES_DB", conf.app_db_name.as_str())
+                .with_env_var("POSTGRES_USER", conf.superuser.as_str())
+                .with_env_var("POSTGRES_PASSWORD", conf.superuser_pwd.as_str())
+                .with_env_var("MIGRATOR_USER", conf.migrator_user.as_str())
+                .with_env_var("MIGRATOR_PASSWORD", conf.migrator_pwd.as_str())
+                .with_env_var("APP_USER", conf.app_user.as_str())
+                .with_env_var("APP_USER_PASSWORD", conf.app_user_pwd.as_str())
+                .with_env_var("TABLE_PROVISIONER_USER", conf.table_provisioner_user.as_str())
+                .with_env_var("TABLE_PROVISIONER_PASSWORD", conf.table_provisioner_pwd.as_str())
                 .with_container_name(&id)
                 .start()
                 .await
-                .must_expect("failed to start postgres container");
+                .must_expect("failed to start postgres-mae container");
 
             let port = container
                 .get_host_port_ipv4(5432)
