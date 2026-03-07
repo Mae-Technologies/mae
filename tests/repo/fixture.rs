@@ -32,15 +32,15 @@ pub use sqlx::types::JsonValue as SqlxJson;
 #[allow(non_snake_case, non_camel_case_types, nonstandard_style)]
 pub struct RepoExample {
     pub value: i32,
-    pub string_value: String,
+    pub string_value: String
 }
 
-impl<F: ToField,> KeyAuths<F,> for RepoExample {
-    fn keys() -> Vec<FilterOp<F,>,> {
+impl<F: ToField> KeyAuths<F> for RepoExample {
+    fn keys() -> Vec<FilterOp<F>> {
         // No tenant-scoping in tests — all rows are visible regardless of sys_client.
         // Production implementations should return a sys_client filter here.
         // TODO: This needs to actually add the rows.
-        Vec::<FilterOp<F,>,>::new()
+        Vec::<FilterOp<F>>::new()
     }
 }
 
@@ -55,10 +55,10 @@ pub fn gen_insert_row() -> InsertRow {
         sys_client: 1,
         status: DomainStatus::Active,
         value: 1,
-        string_value: String::from("hello_world",),
+        string_value: String::from("hello_world"),
         comment: None,
-        tags: SqlxJson::Array(vec![],),
-        sys_detail: SqlxJson::Object(Map::new(),),
+        tags: SqlxJson::Array(vec![]),
+        sys_detail: SqlxJson::Object(Map::new())
     }
 }
 
@@ -68,12 +68,12 @@ pub fn gen_insert_row() -> InsertRow {
 /// All `Option` wrappers are `Some(…)` so the full-row update path is exercised.
 pub fn gen_update_row() -> UpdateRow {
     UpdateRow {
-        status: Some(DomainStatus::Active,),
-        value: Some(1,),
-        string_value: Some(String::from("hello_world",),),
-        comment: Some(None,),
-        tags: Some(SqlxJson::Array(vec![],),),
-        sys_detail: Some(SqlxJson::Object(Map::new(),),),
+        status: Some(DomainStatus::Active),
+        value: Some(1),
+        string_value: Some(String::from("hello_world")),
+        comment: Some(None),
+        tags: Some(SqlxJson::Array(vec![])),
+        sys_detail: Some(SqlxJson::Object(Map::new()))
     }
 }
 
@@ -81,11 +81,11 @@ pub fn gen_update_row() -> UpdateRow {
 /// `value`, `comment`, and `status`. Intentionally omits `string_value`, `tags`, and
 /// `sys_detail` to exercise the partial-update behaviour of `SqlStatement::Patch` —
 /// only the three specified columns should appear in the generated UPDATE SET clause.
-pub fn gen_patches() -> Vec<PatchField,> {
+pub fn gen_patches() -> Vec<PatchField> {
     vec![
-        PatchField::value(100,),
-        PatchField::comment(Some("patching!".into(),),),
-        PatchField::status(DomainStatus::Archived,),
+        PatchField::value(100),
+        PatchField::comment(Some("patching!".into())),
+        PatchField::status(DomainStatus::Archived),
     ]
 }
 
@@ -93,6 +93,6 @@ pub fn gen_patches() -> Vec<PatchField,> {
 ///
 /// Used by patch/update tests that need valid WHERE clause bindings but expect zero
 /// matched rows (e.g. `patch_should_return_empty`).
-pub fn gen_filters() -> Vec<FilterOp<Field,>,> {
-    vec![FilterOp::Begin(Field::string_value, Filter::Like("sdfsdfsdfsd".into(),),)]
+pub fn gen_filters() -> Vec<FilterOp<Field>> {
+    vec![FilterOp::Begin(Field::string_value, Filter::Like("sdfsdfsdfsd".into()))]
 }
