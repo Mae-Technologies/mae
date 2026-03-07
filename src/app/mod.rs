@@ -1,3 +1,19 @@
+//! Application lifecycle helpers for Mae micro-services.
+//!
+//! This module provides the three building blocks every Mae service needs at
+//! startup:
+//!
+//! - **Configuration** ([`configuration`]) — deserialises YAML config files
+//!   and environment overrides into a typed [`configuration::Settings`].
+//! - **Builder** ([`build`]) — the [`build::App`] and [`build::Run`] traits
+//!   that services implement to wire up their Actix-Web server, database pool,
+//!   Redis session store, and custom context.
+//! - **Runner** ([`run`]) — the top-level [`run`] async function that
+//!   initialises telemetry, loads config, and drives the server to completion.
+//!
+//! Most services only need [`prelude`], which re-exports the complete set of
+//! types required in a typical `main.rs`.
+
 // TODO: Im pretty sure the crate::aop::app is not being used at all. -- it has been removed, but
 // if something errors when using this crate, look into it.
 #[allow(clippy::module_inception)]

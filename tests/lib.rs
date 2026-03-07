@@ -1,6 +1,6 @@
 #[cfg(test)]
 pub mod common;
 
-#[cfg(feature = "test-requires-docker")]
+#[cfg(feature = "integration-testing")]
 #[cfg(test)]
 pub mod repo;

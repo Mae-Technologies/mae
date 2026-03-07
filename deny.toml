@@ -15,7 +15,6 @@ allow = [
 ]
 
 [advisories]
-db-urls = ["https://github.com/RustSec/advisory-db"]
 unmaintained = "workspace"
 
 [bans]

@@ -3,13 +3,29 @@ name = "mae"
 version = "0.1.1"
 edition = "2024"
 license = "MIT"
-description = "Mae is used to standardize and streamline the creation of micro-services."
-homepage = "https://statbook.io"
-readme = "./README.md"
-repository = "https://github.com/MrCartaaa/mae"
+description = "Opinionated async Rust framework for building Mae-Technologies micro-services — app scaffolding, repo layer, middleware, and test utilities."
+homepage = "https://github.com/Mae-Technologies/mae"
+repository = "https://github.com/Mae-Technologies/mae"
+documentation = "https://docs.rs/mae"
+readme = "README.md"
+keywords = ["microservice", "actix-web", "sqlx", "framework", "async"]
+categories = ["web-programming", "database", "development-tools"]
+exclude = [
+    ".cargo",
+    ".ci",
+    ".git-hooks",
+    ".github",
+    ".rust_template_version",
+    "Cargo.lock",
+    "clippy.toml",
+    "deny.toml",
+    "deny.exceptions.toml",
+    "rustfmt.toml",
+    "DEVELOPMENT.md",
+]
 
 [features]
-test-requires-docker = []
+integration-testing = ["test-utils"]
 test-utils = [
     "dep:pretty_assertions",
     "dep:testcontainers",
@@ -26,7 +42,7 @@ test-utils = [
 panic = "unwind"
 
 [dependencies]
-mae_macros = { git = "https://github.com/Mae-Technologies/mae_macros.git" }
+mae_macros = "0.1.0"
 chrono = { version = "0.4.43", features = ["serde"] }
 serde_json = "1.0.149"
 sqlx = { version = "0.8.6", default-features = false, features = ["chrono", "macros", "postgres", "runtime-async-std"] }
@@ -70,3 +86,7 @@ pretty_assertions = "1.4.1"
 dotenvy = "0.15.7"
 url = "2.5.8"
 shellexpand = "3.1.1"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

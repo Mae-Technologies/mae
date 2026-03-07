@@ -35,17 +35,17 @@ pub trait MaeContainer {
     ///
     /// Returns `Some(())` when the container is running, `None` when
     /// `MAE_TESTCONTAINERS` is not set to `1`/`true`.
-    fn start() -> impl Future<Output = Option<(),>,> + Send;
+    fn start() -> impl Future<Output = Option<()>> + Send;
 
     /// Create a fresh isolation scope for one test.
     ///
     /// Callers must drop / clean up the scope when the test finishes.
-    fn scope() -> impl Future<Output = anyhow::Result<Self::Scope,>,> + Send;
+    fn scope() -> impl Future<Output = anyhow::Result<Self::Scope>> + Send;
 
     /// Stop the container and reset the singleton.
     ///
     /// Safe to call even when the container was never started.
-    fn teardown() -> impl Future<Output = (),> + Send;
+    fn teardown() -> impl Future<Output = ()> + Send;
 }
 
 /// Stop **all** Mae container singletons.

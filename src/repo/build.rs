@@ -52,22 +52,22 @@ use super::type_def::{Context, QueryAs, ToField, ToInsertRow, ToPatch, ToUpdateR
 /// - `F` — Field enum (generated as `Field`; drives SELECT column lists and WHERE clauses)
 /// - `P` — Patch type (generated as `PatchField`; updates ONLY the supplied fields —
 ///   prefer this over `update_many` for partial mutations)
-pub trait Build<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,>:
-    QueryAs + KeyAuths<F,>
+pub trait Build<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch>:
+    QueryAs + KeyAuths<F>
 {
     /// Construct a [`Builder`] pre-loaded with the given SQL statement variant.
     ///
     /// The builder is seeded with the schema-level key-auth filters returned by
     /// [`KeyAuths::keys`], so callers only need to add any additional WHERE conditions
     /// via [`Builder::filter`].
-    fn build(ctx: &C, statement: SqlStatement<I, U, F, P,>,) -> Builder<'_, C, Self, I, U, F, P,> {
-        Builder::<C, Self, I, U, F, P,> {
+    fn build(ctx: &C, statement: SqlStatement<I, U, F, P>) -> Builder<'_, C, Self, I, U, F, P> {
+        Builder::<C, Self, I, U, F, P> {
             statement,
             filters: Self::keys(),
             schema: Self::schema(),
             ctx,
             query_as: PhantomData,
-            returning: None,
+            returning: None
         }
     }
     /// Return the fully-qualified SQL schema/table name for this domain type
@@ -81,8 +81,8 @@ pub trait Build<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPat
 /// produced by this domain's builder — typically a `sys_client` equality filter that
 /// scopes all DB access to the current tenant. The `#[schema]` macro generates a
 /// default (empty) implementation; override it to enforce row-level auth.
-pub trait KeyAuths<F: ToField,> {
-    fn keys() -> Vec<FilterOp<F,>,>;
+pub trait KeyAuths<F: ToField> {
+    fn keys() -> Vec<FilterOp<F>>;
 }
 
 /// High-level CRUD API for domain structs.
@@ -100,31 +100,31 @@ pub trait KeyAuths<F: ToField,> {
 /// Both require at least one `.filter(…)` before execution to prevent accidental full-table
 /// updates. Attempting to execute either without a filter returns an error.
 // TODO: the recs / rec needs to be borrowed -- this brings in lifetimes
-pub trait Interface<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,>:
-    Build<C, I, U, F, P,>
+pub trait Interface<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch>:
+    Build<C, I, U, F, P>
 {
     /// Build an `INSERT INTO … VALUES (…) RETURNING *` statement for a single row.
     ///
     /// `created_by` is automatically appended from the session user — callers do not
     /// need to set it on `rec`.
-    fn insert_one(ctx: &C, rec: I,) -> Builder<'_, C, Self, I, U, F, P,> {
-        Self::build(ctx, SqlStatement::<I, U, F, P,>::InsertOne(rec,),)
+    fn insert_one(ctx: &C, rec: I) -> Builder<'_, C, Self, I, U, F, P> {
+        Self::build(ctx, SqlStatement::<I, U, F, P>::InsertOne(rec))
     }
 
     /// Build an `INSERT INTO … VALUES …` statement for multiple rows.
     ///
     /// **Not yet implemented** — calling `.fetch_all()` on the returned builder will
     /// panic at runtime until bulk-insert support is added.
-    fn insert_many(ctx: &C, recs: Vec<I,>,) -> Builder<'_, C, Self, I, U, F, P,> {
-        Self::build(ctx, SqlStatement::<I, U, F, P,>::InsertMany(recs,),)
+    fn insert_many(ctx: &C, recs: Vec<I>) -> Builder<'_, C, Self, I, U, F, P> {
+        Self::build(ctx, SqlStatement::<I, U, F, P>::InsertMany(recs))
     }
 
     /// Build a `SELECT <fields> FROM <schema> [WHERE …]` statement.
     ///
     /// Pass `vec![Field::All]` to select every column, or enumerate specific [`ToField`]
     /// variants to project only those columns. Add WHERE conditions via `.filter(…)`.
-    fn select(ctx: &C, rec: Vec<F,>,) -> Builder<'_, C, Self, I, U, F, P,> {
-        Self::build(ctx, SqlStatement::<I, U, F, P,>::Select(rec,),)
+    fn select(ctx: &C, rec: Vec<F>) -> Builder<'_, C, Self, I, U, F, P> {
+        Self::build(ctx, SqlStatement::<I, U, F, P>::Select(rec))
     }
 
     /// Build a full-row `UPDATE … SET … FROM (VALUES …) RETURNING *` statement.
@@ -134,8 +134,8 @@ pub trait Interface<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: T
     /// all `Option` fields in `rec` are `None`.
     ///
     /// Prefer [`patch`](Self::patch) when only a subset of fields should change.
-    fn update_many(ctx: &C, rec: U,) -> Builder<'_, C, Self, I, U, F, P,> {
-        Self::build(ctx, SqlStatement::Update(rec,),)
+    fn update_many(ctx: &C, rec: U) -> Builder<'_, C, Self, I, U, F, P> {
+        Self::build(ctx, SqlStatement::Update(rec))
     }
 
     /// Build a partial `UPDATE … SET … FROM (VALUES …) RETURNING *` statement.
@@ -146,15 +146,15 @@ pub trait Interface<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: T
     /// [`update_many`](Self::update_many), which always writes every column.
     ///
     /// Requires at least one `.filter(…)` call and at least one element in `recs`.
-    fn patch(ctx: &C, recs: Vec<P,>,) -> Builder<'_, C, Self, I, U, F, P,> {
-        Self::build(ctx, SqlStatement::Patch(recs,),)
+    fn patch(ctx: &C, recs: Vec<P>) -> Builder<'_, C, Self, I, U, F, P> {
+        Self::build(ctx, SqlStatement::Patch(recs))
     }
 }
 
 // Blanket impl: every type that satisfies Build automatically gets Interface for free.
 // This means domain structs never need to manually implement Interface.
-impl<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch, B: Build<C, I, U, F, P,>,>
-    Interface<C, I, U, F, P,> for B
+impl<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch, B: Build<C, I, U, F, P>>
+    Interface<C, I, U, F, P> for B
 {
 }
 
@@ -170,69 +170,69 @@ pub struct Builder<
     I: ToInsertRow,
     U: ToUpdateRow,
     F: ToField,
-    P: ToPatch,
+    P: ToPatch
 > {
     /// The SQL operation variant (SELECT, INSERT, UPDATE, PATCH) with its payload.
-    statement: SqlStatement<I, U, F, P,>,
+    statement: SqlStatement<I, U, F, P>,
     /// Accumulated WHERE filters; seeded from [`KeyAuths::keys`] and extended by callers.
-    filters: Vec<FilterOp<F,>,>,
+    filters: Vec<FilterOp<F>>,
     /// Fully-qualified table/schema name (e.g. `"public.my_table"`).
     schema: String,
     ctx: &'a C,
-    query_as: PhantomData<fn() -> A,>,
-    returning: Option<Vec<F,>,>,
+    query_as: PhantomData<fn() -> A>,
+    returning: Option<Vec<F>>
 }
 
-impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,>
-    Builder<'_, C, A, I, U, F, P,>
+impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch>
+    Builder<'_, C, A, I, U, F, P>
 {
     /// Append additional WHERE filters to this builder.
     ///
     /// Filters are combined with the schema-level key-auth filters already present.
     /// Call this before any `fetch_*` / `execute` method.
-    pub fn filter(mut self, mut values: Vec<FilterOp<F,>,>,) -> Self {
-        self.filters.append(&mut values,);
+    pub fn filter(mut self, mut values: Vec<FilterOp<F>>) -> Self {
+        self.filters.append(&mut values);
         self
     }
     /// Override the default `RETURNING *` clause with a specific column list.
-    pub fn returning(mut self, values: Vec<F,>,) -> Self {
-        self.returning = Some(values,);
+    pub fn returning(mut self, values: Vec<F>) -> Self {
+        self.returning = Some(values);
         self
     }
 }
 
-impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,>
-    ContextAccessor for Builder<'_, C, A, I, U, F, P,>
+impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> ContextAccessor
+    for Builder<'_, C, A, I, U, F, P>
 {
-    fn db_pool(&self,) -> &sqlx::PgPool {
+    fn db_pool(&self) -> &sqlx::PgPool {
         self.ctx.db_pool()
     }
-    fn session(&self,) -> &crate::session::Session {
+    fn session(&self) -> &crate::session::Session {
         self.ctx.session()
     }
-    fn session_user(&self,) -> &i32 {
+    fn session_user(&self) -> &i32 {
         self.ctx.session_user()
     }
 }
 
-impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,>
-    ToSql<I, U, F, P,> for Builder<'_, C, A, I, U, F, P,>
+impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch>
+    ToSql<I, U, F, P> for Builder<'_, C, A, I, U, F, P>
 {
-    fn statement(&self,) -> &SqlStatement<I, U, F, P,> {
+    fn statement(&self) -> &SqlStatement<I, U, F, P> {
         &self.statement
     }
-    fn schema(&self,) -> &String {
+    fn schema(&self) -> &String {
         &self.schema
     }
-    fn filters(&self,) -> &Vec<FilterOp<F,>,> {
+    fn filters(&self) -> &Vec<FilterOp<F>> {
         &self.filters
     }
 }
 
-impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,>
-    Execute<C, A, I, U, F, P,> for Builder<'_, C, A, I, U, F, P,>
+impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch>
+    Execute<C, A, I, U, F, P> for Builder<'_, C, A, I, U, F, P>
 where
-    Self: ToSql<I, U, F, P,>,
+    Self: ToSql<I, U, F, P>
 {
 }
 
@@ -240,35 +240,35 @@ where
 ///
 /// Separating SQL generation (`to_sql`) from execution ([`Execute`]) keeps the builder
 /// testable: call `to_sql()` to inspect the generated query without hitting the DB.
-pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> {
-    fn statement(&self,) -> &SqlStatement<I, U, F, P,>;
-    fn filters(&self,) -> &Vec<FilterOp<F,>,>;
-    fn schema(&self,) -> &String;
-    fn to_sql(&self,) -> Result<String,> {
+pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> {
+    fn statement(&self) -> &SqlStatement<I, U, F, P>;
+    fn filters(&self) -> &Vec<FilterOp<F>>;
+    fn schema(&self) -> &String;
+    fn to_sql(&self) -> Result<String> {
         Ok(match &self.statement() {
-            SqlStatement::Select(field_blocks,) => {
-                let where_str = sql_where(self.filters(), self.statement().bind_len(), None,);
+            SqlStatement::Select(field_blocks) => {
+                let where_str = sql_where(self.filters(), self.statement().bind_len(), None);
                 let fields = field_blocks
                     .iter()
-                    .map(|field| -> Result<String,> {
-                        let (mut str_value, _,) = field.to_sql_parts();
-                        str_value.pop().ok_or_else(|| anyhow!("cannot find binding index"),)
-                    },)
-                    .collect::<Result<Vec<_,>,>>()?
-                    .join(",\n\t",);
+                    .map(|field| -> Result<String> {
+                        let (mut str_value, _) = field.to_sql_parts();
+                        str_value.pop().ok_or_else(|| anyhow!("cannot find binding index"))
+                    })
+                    .collect::<Result<Vec<_>>>()?
+                    .join(",\n\t");
                 format!("SELECT\n\t{}\nFROM {}{};", &fields, self.schema(), where_str,)
             }
-            SqlStatement::InsertOne(row,) => {
-                let (mut fields, bind_idx_option,) = row.to_sql_parts();
+            SqlStatement::InsertOne(row) => {
+                let (mut fields, bind_idx_option) = row.to_sql_parts();
                 let mut bind_idx =
-                    bind_idx_option.ok_or_else(|| anyhow!("cannot find binding index"),)?;
+                    bind_idx_option.ok_or_else(|| anyhow!("cannot find binding index"))?;
                 // Append `created_by` automatically — it is always sourced from the session
                 // user and must not be set by the caller.
-                fields.push("created_by".into(),);
+                fields.push("created_by".into());
                 let last_idx = bind_idx.len();
-                bind_idx.push(format!("${}", last_idx + 1),);
-                let fields_str = fields.join(",\n\t ",);
-                let bind_idx_str = bind_idx.join(", ",);
+                bind_idx.push(format!("${}", last_idx + 1));
+                let fields_str = fields.join(",\n\t ");
+                let bind_idx_str = bind_idx.join(", ");
                 format!(
                     "INSERT INTO {}\n\t(\n\t {}\n\t)\n\tVALUES ({})\nRETURNING *;",
                     self.schema(),
@@ -276,32 +276,29 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> {
                     bind_idx_str,
                 )
             }
-            SqlStatement::InsertMany(_,) => {
+            SqlStatement::InsertMany(_) => {
                 unimplemented!();
             }
             // SqlStatement::Update: full-row update — every column in UpdateRow is written.
             // Uses a VALUES CTE (_z_) to bind all fields as positional params safely.
             // The WHERE clause targets the original table alias (_x_) via sql_where.
-            SqlStatement::Update(row,) => {
-                let where_str = sql_where(
-                    self.filters(),
-                    self.statement().bind_len() + 1,
-                    Some("_x_".into(),),
-                );
-                let (mut fields, bind_idx_option,) = row.to_sql_parts();
+            SqlStatement::Update(row) => {
+                let where_str =
+                    sql_where(self.filters(), self.statement().bind_len() + 1, Some("_x_".into()));
+                let (mut fields, bind_idx_option) = row.to_sql_parts();
                 let mut bind_idx =
-                    bind_idx_option.ok_or_else(|| anyhow!("cannot find binding index"),)?;
+                    bind_idx_option.ok_or_else(|| anyhow!("cannot find binding index"))?;
                 // Append `updated_by` automatically — sourced from session user.
-                fields.push("updated_by".into(),);
+                fields.push("updated_by".into());
                 let last_idx = bind_idx.len();
-                bind_idx.push(format!("${}", last_idx + 1),);
-                let f = fields.join(",\n\t\t ",);
+                bind_idx.push(format!("${}", last_idx + 1));
+                let f = fields.join(",\n\t\t ");
                 let f_f = fields
                     .into_iter()
-                    .map(|f| format!("\n\t\t{f} = _z_.{f}"),)
-                    .collect::<Vec<_,>>()
-                    .join(", ",);
-                let v = bind_idx.join(", ",);
+                    .map(|f| format!("\n\t\t{f} = _z_.{f}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let v = bind_idx.join(", ");
                 let schema = self.schema();
                 format!(
                     "UPDATE {schema} _x_\n\tSET {f_f}\n\tFROM\n\t\t(VALUES ({v}))\n\tAS _z_ (\n\t\t {f}\n\t\t){where_str}\nRETURNING *;"
@@ -312,48 +309,44 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> {
             // SqlStatement::Update: callers specify exactly which columns change rather than
             // providing every column. Use patch() when you want to update 1–N fields without
             // overwriting the rest of the row.
-            SqlStatement::Patch(fields,) => {
-                let where_str = sql_where(
-                    self.filters(),
-                    self.statement().bind_len() + 1,
-                    Some("_x_".into(),),
-                );
-                let (mut fields, _,) = concat_sql_parts(
-                    fields.iter().map(|f| f.to_sql_parts(),).collect::<Vec<_,>>(),
-                );
+            SqlStatement::Patch(fields) => {
+                let where_str =
+                    sql_where(self.filters(), self.statement().bind_len() + 1, Some("_x_".into()));
+                let (mut fields, _) =
+                    concat_sql_parts(fields.iter().map(|f| f.to_sql_parts()).collect::<Vec<_>>());
                 let mut bind_idx =
-                    (0..fields.len()).map(|i| format!("${:?}", i + 1),).collect::<Vec<_,>>();
+                    (0..fields.len()).map(|i| format!("${:?}", i + 1)).collect::<Vec<_>>();
                 // Append `updated_by` — always sourced from session user, not from PatchField.
-                fields.push("updated_by".into(),);
+                fields.push("updated_by".into());
                 let last_idx = bind_idx.len();
-                bind_idx.push(format!("${}", last_idx + 1),);
-                let f = fields.join(",\n\t\t ",);
+                bind_idx.push(format!("${}", last_idx + 1));
+                let f = fields.join(",\n\t\t ");
                 let f_f = fields
                     .into_iter()
-                    .map(|f| format!("\n\t\t{f} = _z_.{f}"),)
-                    .collect::<Vec<_,>>()
-                    .join(", ",);
-                let v = bind_idx.join(", ",);
+                    .map(|f| format!("\n\t\t{f} = _z_.{f}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let v = bind_idx.join(", ");
                 let schema = self.schema();
                 format!(
                     "UPDATE {schema} _x_\n\tSET {f_f}\n\tFROM\n\t\t(VALUES ({v}))\n\tAS _z_ (\n\t\t {f}\n\t\t){where_str}\nRETURNING *;"
                 )
             }
-        },)
+        })
     }
-    fn args(&self, session_user: &i32,) -> sqlx::postgres::PgArguments {
+    fn args(&self, session_user: &i32) -> sqlx::postgres::PgArguments {
         let mut args = sqlx::postgres::PgArguments::default();
         match self.statement() {
-            SqlStatement::Select(_,) => {}
+            SqlStatement::Select(_) => {}
             _ => {
-                self.statement().bind(&mut args,);
+                self.statement().bind(&mut args);
                 // Always bind session_user last for INSERT (created_by) and UPDATE/PATCH
                 // (updated_by). The placeholder is the final positional param in to_sql().
-                let _ = args.add(session_user,);
+                let _ = args.add(session_user);
             }
         };
         for w in self.filters().iter() {
-            w.bind(&mut args,);
+            w.bind(&mut args);
         }
         args
     }
@@ -364,29 +357,29 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> {
 /// Implemented automatically for any [`Builder`] that also implements [`ToSql`].
 /// The `fetch_all` method is the primary entry point for most callers; `execute` is
 /// for fire-and-forget mutations that don't need returned rows.
-pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,>:
-    ToSql<I, U, F, P,> + ContextAccessor
+pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch>:
+    ToSql<I, U, F, P> + ContextAccessor
 {
     /// Execute the statement without returning rows (e.g. a side-effect-only mutation).
-    fn execute(&self, _ctx: &C,) -> impl std::future::Future<Output = anyhow::Result<(),>,> + Send
+    fn execute(&self, _ctx: &C) -> impl std::future::Future<Output = anyhow::Result<()>> + Send
     where
-        Self: Sync,
+        Self: Sync
     {
         async { todo!() }
     }
     fn fetch_optional(
         &self,
-        _ctx: &C,
-    ) -> impl std::future::Future<Output = anyhow::Result<Option<A,>,>,> + Send
+        _ctx: &C
+    ) -> impl std::future::Future<Output = anyhow::Result<Option<A>>> + Send
     where
-        Self: Sync,
+        Self: Sync
     {
         async { todo!() }
     }
     /// Execute and return exactly one row, erroring if zero or more than one row is returned.
-    fn fetch_one(&self, _ctx: &C,) -> impl std::future::Future<Output = anyhow::Result<A,>,> + Send
+    fn fetch_one(&self, _ctx: &C) -> impl std::future::Future<Output = anyhow::Result<A>> + Send
     where
-        Self: Sync,
+        Self: Sync
     {
         async { todo!() }
     }
@@ -397,24 +390,24 @@ pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToF
     ///
     /// Pass a `&mut Transaction` to participate in the caller's transaction, or the pool
     /// directly for auto-commit behaviour.
-    fn fetch_all<'c,>(
+    fn fetch_all<'c>(
         &self,
-        exec: impl Executor<'c, Database = Postgres,>,
-    ) -> impl std::future::Future<Output = anyhow::Result<Vec<A,>,>,> + Send
+        exec: impl Executor<'c, Database = Postgres>
+    ) -> impl std::future::Future<Output = anyhow::Result<Vec<A>>> + Send
     where
-        Self: Sync + Send,
+        Self: Sync + Send
     {
         async move {
             self.authenticate_request()?;
             let sql = self.to_sql()?;
-            let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments,>(
+            let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments>(
                 &sql,
-                self.args(self.session_user(),),
+                self.args(self.session_user())
             );
-            let res: anyhow::Result<Vec<A,>,> = req
-                .fetch_all(exec,)
+            let res: anyhow::Result<Vec<A>> = req
+                .fetch_all(exec)
                 .await
-                .map_err(|e| anyhow::anyhow!("Unable to fetch all: {}", e),);
+                .map_err(|e| anyhow::anyhow!("Unable to fetch all: {}", e));
             res
         }
     }
@@ -424,36 +417,36 @@ pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToF
     ///   and at least one non-empty field (prevents no-op updates).
     /// - `Select`: requires exactly one field-block when using `fetch_all`; use
     ///   `fetch_all_raw` for multi-column projections.
-    fn authenticate_request(&self,) -> Result<(),> {
+    fn authenticate_request(&self) -> Result<()> {
         match self.statement() {
-            SqlStatement::Update(_,) | SqlStatement::Patch(_,) => {
+            SqlStatement::Update(_) | SqlStatement::Patch(_) => {
                 if self.filters().is_empty() {
-                    return Err(anyhow!("Unable to Update/Patch without filters"),);
+                    return Err(anyhow!("Unable to Update/Patch without filters"));
                 }
                 if self.statement().bind_len() < 1 {
-                    return Err(anyhow!("Unable to Update/Patch with all fields empty"),);
+                    return Err(anyhow!("Unable to Update/Patch with all fields empty"));
                 }
-                Ok((),)
+                Ok(())
             }
-            SqlStatement::Select(field_blocks,) => {
+            SqlStatement::Select(field_blocks) => {
                 if field_blocks.len() != 1 {
                     return Err(anyhow!(
                         "Unable to use the fetch_all method while choosing which fields to return. Use the fetch_all_raw() method."
-                    ),);
+                    ));
                 }
-                Ok((),)
+                Ok(())
             }
-            _ => Ok((),),
+            _ => Ok(())
         }
     }
 }
 
-impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch,> Debug
-    for Builder<'_, C, A, I, U, F, P,>
+impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> Debug
+    for Builder<'_, C, A, I, U, F, P>
 where
-    Self: ToSql<I, U, F, P,>,
+    Self: ToSql<I, U, F, P>
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_,>,) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "\n{}\n\tSQL\n{}\n\n", "*".repeat(18), "*".repeat(18),)?;
         write!(f, "{}", self.to_sql().map_err(|_| std::fmt::Error)?)?;
         let mut bind_len = self.statement.bind_len();
@@ -463,10 +456,10 @@ where
             write!(f, "\n\n{}\n{}BINDINGS\n{}\n", "*".repeat(18), " ".repeat(5), "*".repeat(18),)?;
         }
         if !bind_len.is_zero() {
-            self.statement.fmt(f,)?;
+            self.statement.fmt(f)?;
         }
         match self.statement {
-            SqlStatement::Select(_,) => writeln!(f),
+            SqlStatement::Select(_) => writeln!(f),
             _ => {
                 bind_len += 1;
                 return write!(f, "\n\t${} = [session_user]\n", bind_len);
@@ -474,11 +467,11 @@ where
         }?;
 
         let mut filter_has_bindings = false;
-        let mut filter_bindings_string = String::from("",);
+        let mut filter_bindings_string = String::from("");
 
-        for (i, filter,) in self.filters.iter().enumerate() {
+        for (i, filter) in self.filters.iter().enumerate() {
             match filter {
-                FilterOp::And(_c, v,) | FilterOp::Or(_c, v,) | FilterOp::Begin(_c, v,) => match v {
+                FilterOp::And(_c, v) | FilterOp::Or(_c, v) | FilterOp::Begin(_c, v) => match v {
                     Filter::IsNull => {}
                     _ => {
                         _has_bindings = true;
@@ -487,9 +480,9 @@ where
                             "\n\t${} = {:?}",
                             i + bind_len + 1,
                             &filter
-                        ),);
+                        ));
                     }
-                },
+                }
             }
         }
         if filter_has_bindings {
@@ -512,6 +505,6 @@ where
 
         write!(f, "\n{}", "*".repeat(18))?;
         write!(f, "\n{}\n", "*".repeat(18))?;
-        std::fmt::Result::Ok((),)
+        std::fmt::Result::Ok(())
     }
 }

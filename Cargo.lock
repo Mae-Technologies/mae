@@ -2266,7 +2266,8 @@ dependencies = [
 [[package]]
 name = "mae_macros"
 version = "0.1.0"
-source = "git+https://github.com/Mae-Technologies/mae_macros.git#9e1735a777e255f599bca7a8b3a3e941a9c97b78"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9146212ad8d8c3b60733ee843436ca9714d20655ba04f3be358a0ebac8ba8f48"
 dependencies = [
  "chrono",
  "proc-macro2",

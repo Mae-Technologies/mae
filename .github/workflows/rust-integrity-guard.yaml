@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - main
+      - master
   pull_request:
     branches:
       - main
+      - master
 
 jobs:
   nightly-ci:
@@ -21,11 +23,6 @@ jobs:
           fetch-depth: 0       # full history needed for git diff
 
       # --- Rewrite SSH git URLs to HTTPS ---
-      # GitHub Actions runners have no SSH key for private repos by default.
-      # Dependencies declared as `git = "ssh://git@github.com/…"` in Cargo.toml would
-      # fail to fetch without this rewrite. This global git config redirect makes all
-      # SSH GitHub URLs transparently use HTTPS instead, which works with the GITHUB_TOKEN
-      # credential helper that Actions sets up automatically.
       - name: Rewrite SSH git URLs to HTTPS (CI has no SSH key)
         run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
 
@@ -48,28 +45,6 @@ jobs:
 
       - name: Install Cargo Miri
         run: rustup component add miri
-
-      - name: Set up SSH key for private deps
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: |
-            ${{ secrets.GH_DEPLOY_KEY }}
-            ${{ secrets.GH_DEPLOY_KEY_MAE_MACROS }}
-
-      # Configure Cargo to use the system git CLI instead of the built-in libgit2 when
-      # fetching dependencies.
-      #
-      # Why git-fetch-with-cli = true?
-      # libgit2 (Cargo's default fetch backend) does NOT honour the global git URL rewrite
-      # set above ("insteadOf"). Only the git CLI respects that config. Without this flag,
-      # private SSH git dependencies would still fail to fetch even after the URL rewrite
-      # step, because libgit2 reads the URL directly from Cargo.toml and bypasses git config.
-      - name: Configure cargo git fetch
-        run: |
-          mkdir -p ~/.cargo
-          echo '[net]' >> ~/.cargo/config.toml
-          echo 'git-fetch-with-cli = true' >> ~/.cargo/config.toml
-
 
       # --- Detect changed Rust files ---
       - name: Get changed Rust files
