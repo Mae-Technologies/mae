@@ -70,7 +70,7 @@ cargo +nightly miri test --all-targets --all-features
 
 **Resources**:
 - Official repository: https://github.com/rust-lang/miri
-- Documentation & usage: https://github.com/rust-lang/miri/blob/main/README.md
+- Documentation & usage: https://github.com/rust-lang/miri/blob/master/README.md
 - Undefined Behavior in Rust: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
 
 ### Test Utilities (`tests/must.rs`)
@@ -98,7 +98,7 @@ Enforces workspace-wide dependency policy:
 
 ### GitHub Actions CI (`.github/workflows/rust_ci.yaml`)
 
-Triggers on push/PR to `main``. Includes:
+Triggers on push/PR to `main` or `master`. Includes:
 
 - `cargo +nightly fmt -- --check`
 - `cargo +nightly clippy -- -D warnings -D clippy::undocumented_unsafe_blocks`
