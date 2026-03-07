@@ -3,10 +3,13 @@ name = "mae"
 version = "0.1.1"
 edition = "2024"
 license = "MIT"
-description = "Mae is used to standardize and streamline the creation of micro-services."
-homepage = "https://statbook.io"
-readme = "./README.md"
-repository = "https://github.com/MrCartaaa/mae"
+description = "Opinionated async Rust framework for building Mae-Technologies micro-services — app scaffolding, repo layer, middleware, and test utilities."
+homepage = "https://github.com/Mae-Technologies/mae"
+repository = "https://github.com/Mae-Technologies/mae"
+documentation = "https://docs.rs/mae"
+readme = "README.md"
+keywords = ["microservice", "actix-web", "sqlx", "framework", "async"]
+categories = ["web-programming", "database", "development-tools"]
 
 [features]
 test-requires-docker = []
