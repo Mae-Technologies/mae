@@ -82,20 +82,26 @@ pub async fn pg_singleton() -> &'static Mutex<Option<Inner>> {
 
             let image = GenericImage::new("ghcr.io/mae-technologies/postgres-mae", "latest")
                 .with_exposed_port(5432.tcp())
-                .with_wait_for(WaitFor::message_on_stderr(
-                    "database system is ready to accept connections"
-                ));
+                .with_wait_for(WaitFor::message_on_stdout("pgTAP tests passed"));
 
             let container: ContainerAsync<GenericImage> = image
-                .with_env_var("POSTGRES_DB", conf.app_db_name.as_str())
-                .with_env_var("POSTGRES_USER", conf.superuser.as_str())
-                .with_env_var("POSTGRES_PASSWORD", conf.superuser_pwd.as_str())
-                .with_env_var("MIGRATOR_USER", conf.migrator_user.as_str())
-                .with_env_var("MIGRATOR_PASSWORD", conf.migrator_pwd.as_str())
+                .with_env_var("APP_DB_NAME", conf.app_db_name.as_str())
+                .with_env_var("APP_ENV", "test")
+                .with_env_var("CONFIRM_IRREVOCABLE_DATABASE_WIPE", "true")
+                .with_env_var("SUPERUSER", conf.superuser.as_str())
+                .with_env_var("SUPERUSER_PWD", conf.superuser_pwd.as_str())
+                .with_env_var("SUPERUSER_DB", "postgres")
                 .with_env_var("APP_USER", conf.app_user.as_str())
-                .with_env_var("APP_USER_PASSWORD", conf.app_user_pwd.as_str())
+                .with_env_var("APP_USER_PWD", conf.app_user_pwd.as_str())
+                .with_env_var("MIGRATOR_USER", conf.migrator_user.as_str())
+                .with_env_var("MIGRATOR_PWD", conf.migrator_pwd.as_str())
                 .with_env_var("TABLE_PROVISIONER_USER", conf.table_provisioner_user.as_str())
-                .with_env_var("TABLE_PROVISIONER_PASSWORD", conf.table_provisioner_pwd.as_str())
+                .with_env_var("TABLE_PROVISIONER_PWD", conf.table_provisioner_pwd.as_str())
+                .with_env_var("MAE_DB_NAME", "mae")
+                .with_env_var("TEST_DB_NAME", "test_db")
+                .with_env_var("DB_HOST", "127.0.0.1")
+                .with_env_var("DB_PORT", "5432")
+                .with_env_var("PG_TEST_LOG", "1")
                 .with_container_name(&id)
                 .start()
                 .await

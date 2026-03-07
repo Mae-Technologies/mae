@@ -1,4 +1,3 @@
-#[cfg(feature = "test-requires-docker")]
+#[cfg(feature = "integration-testing")]
 pub mod context;
-mod env;
 pub mod must;

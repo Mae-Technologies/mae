@@ -25,7 +25,7 @@ exclude = [
 ]
 
 [features]
-test-requires-docker = []
+integration-testing = ["test-utils"]
 test-utils = [
     "dep:pretty_assertions",
     "dep:testcontainers",

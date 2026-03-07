@@ -16,7 +16,7 @@ pub use sqlx::types::JsonValue as SqlxJson;
 /// expected field types. This is a compile-time smoke test — if the struct fields or
 /// their types change, this test fails to compile before any DB is involved.
 #[cfg_attr(miri, ignore)]
-#[mae_test]
+#[mae_test(docker, teardown = crate::common::context::teardown)]
 fn should_make_domain_struct() {
     let _my_repo = fixture::RepoExample {
         value: 1,
@@ -38,7 +38,7 @@ fn should_make_domain_struct() {
 /// returning the inserted record via `RETURNING *`. Runs inside a transaction that is
 /// rolled back after the test so no data persists in the test DB.
 #[cfg_attr(miri, ignore)]
-#[mae_test]
+#[mae_test(docker, teardown = crate::common::context::teardown)]
 async fn should_insert() -> Result<()> {
     let ctx = get_context().await?;
 
@@ -59,7 +59,7 @@ async fn should_insert() -> Result<()> {
 /// no rows match the pattern. Confirms that the WHERE clause is generated correctly
 /// and that an empty result is not treated as an error.
 #[cfg_attr(miri, ignore)]
-#[mae_test]
+#[mae_test(docker, teardown = crate::common::context::teardown)]
 async fn should_get_empty_records() -> Result<()> {
     let ctx = get_context().await?;
 
@@ -82,7 +82,7 @@ async fn should_get_empty_records() -> Result<()> {
 /// queries for it using a matching filter. Confirms the inserted row is retrievable
 /// and that the filter bindings are wired up correctly.
 #[cfg_attr(miri, ignore)]
-#[mae_test]
+#[mae_test(docker, teardown = crate::common::context::teardown)]
 async fn should_get_records() -> Result<()> {
     let ctx = get_context().await?;
 
@@ -110,7 +110,7 @@ async fn should_get_records() -> Result<()> {
 /// Validates that calling `update_many` without any `.filter(…)` returns an error.
 /// This is a safety guard — an unfiltered UPDATE would overwrite every row in the table.
 #[cfg_attr(miri, ignore)]
-#[mae_test]
+#[mae_test(docker, teardown = crate::common::context::teardown)]
 async fn should_error_on_update_without_filters() -> Result<()> {
     let ctx = get_context().await?;
 
@@ -128,7 +128,7 @@ async fn should_error_on_update_without_filters() -> Result<()> {
 /// Validates that an `update_many` where every `Option` field in `UpdateRow` is `None`
 /// returns an error. A fully-None update would produce empty SQL and is never intentional.
 #[cfg_attr(miri, ignore)]
-#[mae_test]
+#[mae_test(docker, teardown = crate::common::context::teardown)]
 async fn should_error_on_update_with_row_fields_all_none() -> Result<()> {
     let ctx = get_context().await?;
 
@@ -157,7 +157,7 @@ async fn should_error_on_update_with_row_fields_all_none() -> Result<()> {
 ///
 /// Note: result content is not yet asserted — see the TODO below.
 #[cfg_attr(miri, ignore)]
-#[mae_test]
+#[mae_test(docker, teardown = crate::common::context::teardown)]
 async fn should_update() -> Result<()> {
     let ctx = get_context().await?;
 
@@ -181,7 +181,7 @@ async fn should_update() -> Result<()> {
 /// Validates that calling `patch` without any `.filter(…)` returns an error containing
 /// the "Unable to Update/Patch" message. Mirrors the equivalent update guard test.
 #[cfg_attr(miri, ignore)]
-#[mae_test]
+#[mae_test(docker, teardown = crate::common::context::teardown)]
 async fn should_error_on_patch_without_filters() -> Result<()> {
     let ctx = get_context().await?;
 
@@ -200,7 +200,7 @@ async fn should_error_on_patch_without_filters() -> Result<()> {
 /// returns an error. An empty patch would produce a no-op UPDATE with no SET columns,
 /// which the builder rejects as an error rather than silently succeeding.
 #[cfg_attr(miri, ignore)]
-#[mae_test]
+#[mae_test(docker, teardown = crate::common::context::teardown)]
 async fn should_error_on_patch_with_fields_empty() -> Result<()> {
     let ctx = get_context().await.must();
 
@@ -220,7 +220,7 @@ async fn should_error_on_patch_with_fields_empty() -> Result<()> {
 /// Validates that a `patch` with filters targeting a non-existent row returns an
 /// empty result set (not an error). Confirms that zero matched rows is a valid outcome.
 #[cfg_attr(miri, ignore)]
-#[mae_test]
+#[mae_test(docker, teardown = crate::common::context::teardown)]
 async fn patch_should_return_empty() -> Result<()> {
     let ctx = get_context().await?;
 
@@ -243,7 +243,7 @@ async fn patch_should_return_empty() -> Result<()> {
 ///
 /// Note: result content is not yet asserted — see the TODO below.
 #[cfg_attr(miri, ignore)]
-#[mae_test]
+#[mae_test(docker, teardown = crate::common::context::teardown)]
 async fn should_patch() -> Result<()> {
     let ctx = get_context().await?;
 
