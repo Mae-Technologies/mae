@@ -10,6 +10,19 @@ documentation = "https://docs.rs/mae"
 readme = "README.md"
 keywords = ["microservice", "actix-web", "sqlx", "framework", "async"]
 categories = ["web-programming", "database", "development-tools"]
+exclude = [
+    ".cargo",
+    ".ci",
+    ".git-hooks",
+    ".github",
+    ".rust_template_version",
+    "Cargo.lock",
+    "clippy.toml",
+    "deny.toml",
+    "deny.exceptions.toml",
+    "rustfmt.toml",
+    "DEVELOPMENT.md",
+]
 
 [features]
 test-requires-docker = []
