@@ -98,7 +98,7 @@ Enforces workspace-wide dependency policy:
 
 ### GitHub Actions CI (`.github/workflows/rust_ci.yaml`)
 
-Triggers on push/PR to `main`. Includes:
+Triggers on push/PR to `main` or `master`. Includes:
 
 - `cargo +nightly fmt -- --check`
 - `cargo +nightly clippy -- -D warnings -D clippy::undocumented_unsafe_blocks`

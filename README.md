@@ -1,3 +1,5 @@
+For development rules, see [DEVELOPMENT.md](DEVELOPMENT.md)
+
 # mae
 
 Opinionated async Rust framework for building [Mae-Technologies](https://github.com/Mae-Technologies) micro-services.

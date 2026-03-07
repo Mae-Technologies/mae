@@ -1,2 +1,4 @@
 [build]
 rustflags = ["--cfg", "feature=\"requires-docker\""]
+[net]
+git-fetch-with-cli = true
