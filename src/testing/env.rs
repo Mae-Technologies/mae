@@ -82,6 +82,16 @@ impl DotEnv {
         )
     }
 
+    /// App DATABASE_URL using the loaded DB_PORT.
+    pub fn app_database_url(&self) -> String {
+        self.app_database_url_with_port(self._db_port)
+    }
+
+    /// Migrator DATABASE_URL using the loaded DB_PORT.
+    pub fn migrator_database_url(&self) -> String {
+        self.database_url_with_port(self._db_port)
+    }
+
     /// Same builder for the superuser.
     pub fn super_database_url_with_port(&self, port: u16) -> String {
         build_pg_url(

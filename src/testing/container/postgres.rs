@@ -18,45 +18,8 @@ pub struct Inner {
     pub port: u16
 }
 
-#[derive(Clone, Debug)]
-struct RunningPostgresConfig {
-    host: String,
-    port: u16,
-    db_name: String,
-    app_user: String,
-    app_password: String,
-    migrator_user: String,
-    migrator_password: String,
-    search_path: String
-}
-
-impl RunningPostgresConfig {
-    fn app_database_url(&self) -> String {
-        build_pg_url(
-            &self.app_user,
-            &self.app_password,
-            &self.host,
-            self.port,
-            &self.db_name,
-            Some(&self.search_path)
-        )
-    }
-
-    fn migrator_database_url(&self) -> String {
-        build_pg_url(
-            &self.migrator_user,
-            &self.migrator_password,
-            &self.host,
-            self.port,
-            &self.db_name,
-            Some(&self.search_path)
-        )
-    }
-}
-
 static SINGLETON: OnceCell<Mutex<Option<Inner>>> = OnceCell::const_new();
 static POOL: OnceCell<PgPool> = OnceCell::const_new();
-static FALLBACK_CONFIG: OnceCell<RunningPostgresConfig> = OnceCell::const_new();
 
 pub struct PgScope {
     pub schema: String,
@@ -162,9 +125,8 @@ pub(crate) async fn shared_pool() -> Result<&'static PgPool> {
                     return PgPool::connect(&url).await.context("failed to connect to postgres");
                 }
 
-                let conf = fallback_config()
-                    .await
-                    .context("Postgres fallback mode requires a running postgres instance")?;
+                let conf = env::load();
+                ensure_test_db_name(&conf.app_db_name)?;
                 run_premigration_fallback(conf).await.context("pre-migration script failed")?;
                 PgPool::connect(&conf.app_database_url())
                     .await
@@ -192,7 +154,7 @@ async fn run_premigration_container(inner: &Inner) -> Result<()> {
     run_migrations(&migrator_url).await
 }
 
-async fn run_premigration_fallback(conf: &RunningPostgresConfig) -> Result<()> {
+async fn run_premigration_fallback(conf: &env::DotEnv) -> Result<()> {
     run_migrations(&conf.migrator_database_url()).await
 }
 
@@ -214,71 +176,10 @@ async fn connection_url() -> Result<String> {
         return Ok(env::load().app_database_url_with_port(inner.port));
     }
 
-    let conf = fallback_config().await.context(
-        "Postgres container not running and fallback config is invalid. \
-         Set MAE_TESTCONTAINERS=1 or provide test-safe fallback postgres settings"
-    )?;
+    let conf = env::load();
+    ensure_test_db_name(&conf.app_db_name)?;
 
     Ok(conf.app_database_url())
-}
-
-async fn fallback_config() -> Result<&'static RunningPostgresConfig> {
-    FALLBACK_CONFIG.get_or_try_init(|| async { fallback_config_from_env() }).await
-}
-
-fn fallback_config_from_env() -> Result<RunningPostgresConfig> {
-    fallback_config_from_lookup(|k| std::env::var(k).ok())
-}
-
-fn fallback_config_from_lookup<F>(lookup: F) -> Result<RunningPostgresConfig>
-where
-    F: Fn(&str) -> Option<String>
-{
-    let host = lookup_or_default(&lookup, &["MAE_TEST_PG_HOST", "DB_HOST"], "127.0.0.1");
-    let port = lookup_or_default(&lookup, &["MAE_TEST_PG_PORT", "DB_PORT"], "5432")
-        .parse::<u16>()
-        .context("MAE_TEST_PG_PORT/DB_PORT must be a valid u16")?;
-
-    let db_name = lookup_or_default(&lookup, &["MAE_TEST_PG_DB", "APP_DB_NAME"], "mae_test");
-    ensure_test_db_name(&db_name)?;
-
-    let app_user = lookup_or_default(&lookup, &["MAE_TEST_PG_USER", "APP_USER"], "app");
-    let app_password =
-        lookup_or_default(&lookup, &["MAE_TEST_PG_PASSWORD", "APP_USER_PWD"], "secret");
-
-    let migrator_user =
-        lookup_or_default(&lookup, &["MAE_TEST_PG_MIGRATOR_USER", "MIGRATOR_USER"], "db_migrator");
-    let migrator_password = lookup_or_default(
-        &lookup,
-        &["MAE_TEST_PG_MIGRATOR_PASSWORD", "MIGRATOR_PWD"],
-        "migrator_secret"
-    );
-
-    let search_path = lookup_or_default(
-        &lookup,
-        &["MAE_TEST_PG_SEARCH_PATH", "SEARCH_PATH"],
-        "options=-csearch_path%3Dapp"
-    );
-
-    Ok(RunningPostgresConfig {
-        host,
-        port,
-        db_name,
-        app_user,
-        app_password,
-        migrator_user,
-        migrator_password,
-        search_path
-    })
-}
-
-fn lookup_or_default<F>(lookup: &F, keys: &[&str], default: &str) -> String
-where
-    F: Fn(&str) -> Option<String>
-{
-    keys.iter()
-        .find_map(|k| lookup(k).filter(|v| !v.trim().is_empty()))
-        .unwrap_or_else(|| default.to_owned())
 }
 
 fn ensure_test_db_name(db_name: &str) -> Result<()> {
@@ -288,60 +189,18 @@ fn ensure_test_db_name(db_name: &str) -> Result<()> {
     Ok(())
 }
 
-fn build_pg_url(
-    user: &str,
-    password: &str,
-    host: &str,
-    port: u16,
-    db_name: &str,
-    search_path: Option<&str>
-) -> String {
-    let mut url = format!("postgres://{user}:{password}@{host}:{port}/{db_name}");
-    if let Some(search_path) = search_path {
-        url.push('?');
-        url.push_str(search_path);
-    }
-    url
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn fallback_config_uses_safe_defaults() {
-        let cfg = fallback_config_from_lookup(|_| None).expect("expected defaults to parse");
-        assert_eq!(cfg.host, "127.0.0.1");
-        assert_eq!(cfg.port, 5432);
-        assert_eq!(cfg.db_name, "mae_test");
-        assert!(cfg.app_database_url().contains("/mae_test"));
+    fn ensure_test_db_name_accepts_test_database() {
+        ensure_test_db_name("mae_test").expect("_test db should pass");
     }
 
     #[test]
-    fn fallback_config_respects_overrides() {
-        let cfg = fallback_config_from_lookup(|key| match key {
-            "MAE_TEST_PG_HOST" => Some("localhost".to_owned()),
-            "MAE_TEST_PG_PORT" => Some("6543".to_owned()),
-            "MAE_TEST_PG_DB" => Some("custom_test".to_owned()),
-            "MAE_TEST_PG_USER" => Some("alice".to_owned()),
-            "MAE_TEST_PG_PASSWORD" => Some("pw".to_owned()),
-            _ => None
-        })
-        .expect("expected overrides to parse");
-
-        assert_eq!(cfg.host, "localhost");
-        assert_eq!(cfg.port, 6543);
-        assert_eq!(cfg.db_name, "custom_test");
-        assert!(cfg.app_database_url().contains("postgres://alice:pw@localhost:6543/custom_test"));
-    }
-
-    #[test]
-    fn fallback_rejects_non_test_database() {
-        let err = fallback_config_from_lookup(|key| {
-            if key == "MAE_TEST_PG_DB" { Some("mae".to_owned()) } else { None }
-        })
-        .expect_err("non-test db must fail");
-
+    fn ensure_test_db_name_rejects_non_test_database() {
+        let err = ensure_test_db_name("mae").expect_err("non-test db must fail");
         assert!(format!("{err:#}").contains("Refusing to run against non-test database"));
     }
 }
