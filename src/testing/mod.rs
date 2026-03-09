@@ -10,13 +10,18 @@
 //! # Modules
 //! | Module | Purpose |
 //! |---|---|
-//! | [`container`] | Docker container singletons (Postgres ✅, Redis/Neo4j/RabbitMQ ✅ #40) |
-//! | [`context`]   | [`TestContext<C>`](context::TestContext) — generic test request context |
+//! | [`container`] / [`containers`] | Docker container singletons (Postgres, Redis, Neo4j, RabbitMQ) |
+//! | [`context`]   | [`TestContext<C>`](context::TestContext) + scoped schema helpers |
 //! | [`env`]       | `.env` loader for test credentials |
 //! | [`must`]      | Assertion helpers (`MustExpect`, `must_eq`, …) |
 
 #[cfg(feature = "test-utils")]
 pub mod container;
+
+#[cfg(feature = "test-utils")]
+pub mod containers {
+    pub use super::container::*;
+}
 
 #[cfg(feature = "test-utils")]
 pub mod context;
