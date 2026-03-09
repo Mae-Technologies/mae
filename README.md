@@ -52,3 +52,19 @@ For safety, fallback mode refuses database names that do not include `_test`.
 ## License
 
 MIT
+
+## `test-utils` quickstart
+
+```rust,no_run
+use mae::testing::{context::TestContext, must::Must};
+use mae_macros::mae_test;
+
+#[mae_test(docker, teardown = mae::testing::containers::teardown_all)]
+async fn integration_test_insert_vendor() {
+    let ctx = TestContext::<()>::new().await.must();
+
+    // run queries against ctx.pool, namespaced by ctx.schema as needed
+
+    ctx.teardown().await.must();
+}
+```
