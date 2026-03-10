@@ -308,7 +308,9 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> {
                 // Generating multi-row VALUES clauses requires iterating over all rows,
                 // computing positional bind indices across them, and handling the
                 // RETURNING clause for each. Tracked in issue #23.
-                unimplemented!("InsertMany is not yet implemented — use insert_one in a loop");
+                return Err(anyhow!(
+                    "InsertMany is not yet implemented — use insert_one in a loop"
+                ));
             }
             // SqlStatement::Update: full-row update — every column in UpdateRow is written.
             // Uses a VALUES CTE (_z_) to bind all fields as positional params safely.
@@ -576,7 +578,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::super::map_util::{BindArgs, ToSqlParts};
     use super::*;
+
+    // ── Test helpers ────────────────────────────────────────────────────
 
     /// Minimal [`ToField`] implementation for unit-testing SQL generation helpers
     /// without pulling in the full `#[schema]` macro infrastructure.
@@ -598,12 +603,104 @@ mod tests {
         }
     }
 
-    impl super::super::map_util::ToSqlParts for TestField {
+    impl ToSqlParts for TestField {
         fn to_sql_parts(&self) -> super::super::map_util::AsSqlParts {
             match self {
                 TestField::All => (vec!["*".to_string()], None),
                 other => (vec![other.to_string()], None)
             }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct TestInsertRow;
+
+    impl std::fmt::Display for TestInsertRow {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "id=$1, name=$2")
+        }
+    }
+
+    impl ToSqlParts for TestInsertRow {
+        fn to_sql_parts(&self) -> super::super::map_util::AsSqlParts {
+            (
+                vec!["id".to_string(), "name".to_string()],
+                Some(vec!["$1".to_string(), "$2".to_string()])
+            )
+        }
+    }
+
+    impl BindArgs for TestInsertRow {
+        fn bind(&self, _args: &mut sqlx::postgres::PgArguments) {}
+        fn bind_len(&self) -> usize {
+            2
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct TestUpdateRow;
+
+    impl std::fmt::Display for TestUpdateRow {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "")
+        }
+    }
+
+    impl ToSqlParts for TestUpdateRow {
+        fn to_sql_parts(&self) -> super::super::map_util::AsSqlParts {
+            (vec![], None)
+        }
+    }
+
+    impl BindArgs for TestUpdateRow {
+        fn bind(&self, _args: &mut sqlx::postgres::PgArguments) {}
+        fn bind_len(&self) -> usize {
+            0
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct TestPatch;
+
+    impl std::fmt::Display for TestPatch {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "")
+        }
+    }
+
+    impl ToSqlParts for TestPatch {
+        fn to_sql_parts(&self) -> super::super::map_util::AsSqlParts {
+            (vec![], None)
+        }
+    }
+
+    impl BindArgs for TestPatch {
+        fn bind(&self, _args: &mut sqlx::postgres::PgArguments) {}
+        fn bind_len(&self) -> usize {
+            0
+        }
+    }
+
+    /// Minimal struct implementing ToSql to test SQL generation without a full Builder.
+    struct FakeToSql {
+        statement: SqlStatement<TestInsertRow, TestUpdateRow, TestField, TestPatch>,
+        filters: Vec<FilterOp<TestField>>,
+        schema: String,
+        returning: Option<Vec<TestField>>
+    }
+
+    impl ToSql<TestInsertRow, TestUpdateRow, TestField, TestPatch> for FakeToSql {
+        fn statement(&self) -> &SqlStatement<TestInsertRow, TestUpdateRow, TestField, TestPatch> {
+            &self.statement
+        }
+        fn filters(&self) -> &Vec<FilterOp<TestField>> {
+            &self.filters
+        }
+        fn schema(&self) -> &String {
+            &self.schema
+        }
+        fn returning_fields(&self) -> Option<&Vec<TestField>> {
+            self.returning.as_ref()
         }
     }
 
@@ -634,5 +731,48 @@ mod tests {
         let fields: Vec<TestField> = vec![];
         let clause = build_returning_clause(Some(&fields));
         assert_eq!(clause, "RETURNING ");
+    }
+
+    // ── to_sql: InsertOne ──────────────────────────────────────────────
+
+    #[test]
+    fn insert_one_generates_returning_star_by_default() {
+        let fake = FakeToSql {
+            statement: SqlStatement::InsertOne(TestInsertRow),
+            filters: vec![],
+            schema: "test_table".to_string(),
+            returning: None
+        };
+        let sql = fake.to_sql().unwrap();
+        assert!(sql.contains("RETURNING *"), "expected RETURNING * in: {sql}");
+    }
+
+    #[test]
+    fn insert_one_uses_explicit_returning_fields() {
+        let fake = FakeToSql {
+            statement: SqlStatement::InsertOne(TestInsertRow),
+            filters: vec![],
+            schema: "test_table".to_string(),
+            returning: Some(vec![TestField::Id, TestField::Name])
+        };
+        let sql = fake.to_sql().unwrap();
+        assert!(sql.contains("RETURNING id, name"), "expected RETURNING id, name in: {sql}");
+        assert!(!sql.contains("RETURNING *"), "should not contain RETURNING * in: {sql}");
+    }
+
+    // ── to_sql: InsertMany returns Err ─────────────────────────────────
+
+    #[test]
+    fn insert_many_returns_err_instead_of_panic() {
+        let fake = FakeToSql {
+            statement: SqlStatement::InsertMany(vec![TestInsertRow]),
+            filters: vec![],
+            schema: "test_table".to_string(),
+            returning: None
+        };
+        let result = fake.to_sql();
+        assert!(result.is_err(), "InsertMany should return Err, not panic");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("InsertMany is not yet implemented"), "got: {err_msg}");
     }
 }
