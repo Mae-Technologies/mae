@@ -110,14 +110,12 @@ impl IntoMaeFilter for Option<chrono::NaiveDate> {
     }
 }
 
-#[cfg(feature = "decimal")]
 impl IntoMaeFilter for rust_decimal::Decimal {
     fn into_mae_filter(self) -> Filter {
         Filter::StringIs(self.to_string())
     }
 }
 
-#[cfg(feature = "decimal")]
 impl IntoMaeFilter for Option<rust_decimal::Decimal> {
     fn into_mae_filter(self) -> Filter {
         match self {
@@ -127,14 +125,12 @@ impl IntoMaeFilter for Option<rust_decimal::Decimal> {
     }
 }
 
-#[cfg(feature = "uuid")]
 impl IntoMaeFilter for uuid::Uuid {
     fn into_mae_filter(self) -> Filter {
         Filter::StringIs(self.to_string())
     }
 }
 
-#[cfg(feature = "uuid")]
 impl IntoMaeFilter for Option<uuid::Uuid> {
     fn into_mae_filter(self) -> Filter {
         match self {
