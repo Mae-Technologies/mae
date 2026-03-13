@@ -79,3 +79,63 @@ impl IntoMaeFilter for Option<serde_json::Value> {
         }
     }
 }
+
+impl IntoMaeFilter for bool {
+    fn into_mae_filter(self) -> Filter {
+        Filter::Equals(if self { 1 } else { 0 })
+    }
+}
+
+impl IntoMaeFilter for Option<bool> {
+    fn into_mae_filter(self) -> Filter {
+        match self {
+            Some(v) => v.into_mae_filter(),
+            None => Filter::IsNull
+        }
+    }
+}
+
+impl IntoMaeFilter for chrono::NaiveDate {
+    fn into_mae_filter(self) -> Filter {
+        Filter::StringIs(self.to_string())
+    }
+}
+
+impl IntoMaeFilter for Option<chrono::NaiveDate> {
+    fn into_mae_filter(self) -> Filter {
+        match self {
+            Some(v) => v.into_mae_filter(),
+            None => Filter::IsNull
+        }
+    }
+}
+
+impl IntoMaeFilter for rust_decimal::Decimal {
+    fn into_mae_filter(self) -> Filter {
+        Filter::StringIs(self.to_string())
+    }
+}
+
+impl IntoMaeFilter for Option<rust_decimal::Decimal> {
+    fn into_mae_filter(self) -> Filter {
+        match self {
+            Some(v) => v.into_mae_filter(),
+            None => Filter::IsNull
+        }
+    }
+}
+
+impl IntoMaeFilter for uuid::Uuid {
+    fn into_mae_filter(self) -> Filter {
+        Filter::StringIs(self.to_string())
+    }
+}
+
+impl IntoMaeFilter for Option<uuid::Uuid> {
+    fn into_mae_filter(self) -> Filter {
+        match self {
+            Some(v) => v.into_mae_filter(),
+            None => Filter::IsNull
+        }
+    }
+}
