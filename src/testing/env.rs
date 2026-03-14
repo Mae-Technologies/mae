@@ -140,88 +140,163 @@ fn build_pg_url(
 
 pub fn load() -> &'static DotEnv {
     CONFIG.get_or_init(|| {
-        // Load .env once (noop if missing)
-        dotenvy::dotenv().ok();
-
-        // ---------------- migration paths ----------------
-        let admin_migrations_path = get("ADMIN_MIGRATIONS_PATH");
-        let app_migrations_path = get("APP_MIGRATIONS_PATH");
-
-        // ---------------- db identity ----------------
-        let db_host = get("DB_HOST");
-        let db_port: u16 = get("DB_PORT").parse().must_expect("DB_PORT must be a valid u16");
-        let app_db_name = get("APP_DB_NAME");
-
-        // ---------------- roles ----------------
-        let superuser = get("SUPERUSER");
-        let superuser_pwd = get("SUPERUSER_PWD");
-
-        let migrator_user = get("MIGRATOR_USER");
-        let migrator_pwd = get("MIGRATOR_PWD");
-
-        let app_user = get("APP_USER");
-        let app_user_pwd = get("APP_USER_PWD");
-
-        let table_provisioner_user = get("TABLE_PROVISIONER_USER");
-        let table_provisioner_pwd = get("TABLE_PROVISIONER_PWD");
-
-        // ---------------- urls ----------------
-        let search_path = get("SEARCH_PATH");
-
-        let raw = get("SUPER_DATABASE_URL");
-        let super_database_url = shellexpand::env(&raw)
-            .must_expect("SUPER_DATABASE_URL contains unknown env vars")
-            .into_owned();
-
-        let raw = get("MIGRATOR_DATABASE_URL");
-        let migrator_database_url = shellexpand::env(&raw)
-            .must_expect("MIGRATOR_DATABASE_URL contains unknown env vars")
-            .into_owned();
-
-        let raw = get("DATABASE_URL");
-        let database_url = shellexpand::env(&raw)
-            .must_expect("DATABASE_URL contains unknown env vars")
-            .into_owned();
-
-        let raw = get("APP_DATABASE_URL");
-        let app_database_url = shellexpand::env(&raw)
-            .must_expect("APP_DATABASE_URL contains unknown env vars")
-            .into_owned();
-
-        let raw = get("TABLE_CREATOR_DATABASE_URL");
-        let table_creator_database_url = shellexpand::env(&raw)
-            .must_expect("TABLE_CREATOR_DATABASE_URL contains unknown env vars")
-            .into_owned();
-
-        // ---------------- safety guards ----------------
-        assert_test_database(&super_database_url);
-        assert_test_database(&database_url);
-        assert_test_database(&migrator_database_url);
-        assert_test_database(&app_database_url);
-        assert_test_database(&table_creator_database_url);
-
-        DotEnv {
-            admin_migrations_path,
-            app_migrations_path,
-            db_host,
-            _db_port: db_port,
-            app_db_name,
-            superuser,
-            superuser_pwd,
-            migrator_user,
-            migrator_pwd,
-            app_user,
-            app_user_pwd,
-            table_provisioner_user,
-            table_provisioner_pwd,
-            search_path,
-            _super_database_url: super_database_url,
-            _migrator_database_url: migrator_database_url,
-            _app_database_url: app_database_url,
-            _table_creator_database_url: table_creator_database_url,
-            _database_url: database_url
+        // Try configuration/base.yaml first (the preferred path).
+        // If it works AND contains a `database_admin` section we can build
+        // the entire DotEnv without touching .env / dotenvy at all.
+        if let Some(dot) = try_from_yaml_config() {
+            return dot;
         }
+
+        // Fallback: legacy .env / dotenvy path.
+        load_from_dotenvy()
     })
+}
+
+/// Attempt to build a [`DotEnv`] from `configuration/base.yaml` via
+/// [`get_configuration`].  Returns `None` when the config directory is
+/// missing, the YAML is unparseable, or `database_admin` is absent.
+fn try_from_yaml_config() -> Option<DotEnv> {
+    use crate::app::configuration::get_configuration;
+
+    // We need *some* concrete type for the `custom` generic.  `serde_json::Value`
+    // accepts anything so we don't impose constraints on the service's custom block.
+    let settings = get_configuration::<serde_json::Value>().ok()?;
+    let admin = settings.database_admin?;
+
+    let db_host = settings.database.host.clone();
+    let db_port = settings.database.port;
+    let app_db_name = format!("{}_test", settings.database.database_name);
+
+    let super_database_url = build_pg_url(
+        &admin.superuser, &admin.superuser_pwd,
+        &db_host, db_port, &app_db_name, None,
+    );
+    let migrator_database_url = build_pg_url(
+        &admin.migrator_user, &admin.migrator_pwd,
+        &db_host, db_port, &app_db_name, Some(&admin.search_path),
+    );
+    let database_url = migrator_database_url.clone();
+    let app_database_url = build_pg_url(
+        &admin.app_user, &admin.app_user_pwd,
+        &db_host, db_port, &app_db_name, Some(&admin.search_path),
+    );
+    let table_creator_database_url = build_pg_url(
+        &admin.table_provisioner_user, &admin.table_provisioner_pwd,
+        &db_host, db_port, &app_db_name, Some(&admin.search_path),
+    );
+
+    // Safety guards
+    assert_test_database(&super_database_url);
+    assert_test_database(&database_url);
+    assert_test_database(&migrator_database_url);
+    assert_test_database(&app_database_url);
+    assert_test_database(&table_creator_database_url);
+
+    Some(DotEnv {
+        admin_migrations_path: admin.admin_migrations_path,
+        app_migrations_path: admin.app_migrations_path,
+        db_host,
+        _db_port: db_port,
+        app_db_name,
+        superuser: admin.superuser,
+        superuser_pwd: admin.superuser_pwd,
+        migrator_user: admin.migrator_user,
+        migrator_pwd: admin.migrator_pwd,
+        app_user: admin.app_user,
+        app_user_pwd: admin.app_user_pwd,
+        table_provisioner_user: admin.table_provisioner_user,
+        table_provisioner_pwd: admin.table_provisioner_pwd,
+        search_path: admin.search_path,
+        _super_database_url: super_database_url,
+        _migrator_database_url: migrator_database_url,
+        _app_database_url: app_database_url,
+        _table_creator_database_url: table_creator_database_url,
+        _database_url: database_url,
+    })
+}
+
+/// Legacy path: read everything from `.env` / process environment via dotenvy.
+fn load_from_dotenvy() -> DotEnv {
+    dotenvy::dotenv().ok();
+
+    // ---------------- migration paths ----------------
+    let admin_migrations_path = get("ADMIN_MIGRATIONS_PATH");
+    let app_migrations_path = get("APP_MIGRATIONS_PATH");
+
+    // ---------------- db identity ----------------
+    let db_host = get("DB_HOST");
+    let db_port: u16 = get("DB_PORT").parse().must_expect("DB_PORT must be a valid u16");
+    let app_db_name = get("APP_DB_NAME");
+
+    // ---------------- roles ----------------
+    let superuser = get("SUPERUSER");
+    let superuser_pwd = get("SUPERUSER_PWD");
+
+    let migrator_user = get("MIGRATOR_USER");
+    let migrator_pwd = get("MIGRATOR_PWD");
+
+    let app_user = get("APP_USER");
+    let app_user_pwd = get("APP_USER_PWD");
+
+    let table_provisioner_user = get("TABLE_PROVISIONER_USER");
+    let table_provisioner_pwd = get("TABLE_PROVISIONER_PWD");
+
+    // ---------------- urls ----------------
+    let search_path = get("SEARCH_PATH");
+
+    let raw = get("SUPER_DATABASE_URL");
+    let super_database_url = shellexpand::env(&raw)
+        .must_expect("SUPER_DATABASE_URL contains unknown env vars")
+        .into_owned();
+
+    let raw = get("MIGRATOR_DATABASE_URL");
+    let migrator_database_url = shellexpand::env(&raw)
+        .must_expect("MIGRATOR_DATABASE_URL contains unknown env vars")
+        .into_owned();
+
+    let raw = get("DATABASE_URL");
+    let database_url = shellexpand::env(&raw)
+        .must_expect("DATABASE_URL contains unknown env vars")
+        .into_owned();
+
+    let raw = get("APP_DATABASE_URL");
+    let app_database_url = shellexpand::env(&raw)
+        .must_expect("APP_DATABASE_URL contains unknown env vars")
+        .into_owned();
+
+    let raw = get("TABLE_CREATOR_DATABASE_URL");
+    let table_creator_database_url = shellexpand::env(&raw)
+        .must_expect("TABLE_CREATOR_DATABASE_URL contains unknown env vars")
+        .into_owned();
+
+    // ---------------- safety guards ----------------
+    assert_test_database(&super_database_url);
+    assert_test_database(&database_url);
+    assert_test_database(&migrator_database_url);
+    assert_test_database(&app_database_url);
+    assert_test_database(&table_creator_database_url);
+
+    DotEnv {
+        admin_migrations_path,
+        app_migrations_path,
+        db_host,
+        _db_port: db_port,
+        app_db_name,
+        superuser,
+        superuser_pwd,
+        migrator_user,
+        migrator_pwd,
+        app_user,
+        app_user_pwd,
+        table_provisioner_user,
+        table_provisioner_pwd,
+        search_path,
+        _super_database_url: super_database_url,
+        _migrator_database_url: migrator_database_url,
+        _app_database_url: app_database_url,
+        _table_creator_database_url: table_creator_database_url,
+        _database_url: database_url,
+    }
 }
 
 fn get(key: &str) -> String {

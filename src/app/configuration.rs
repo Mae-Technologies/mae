@@ -35,8 +35,54 @@ pub struct Settings<T> {
     pub database: DatabaseSettings,
     pub application: ApplicationSettings,
     pub redis_uri: SecretString,
-    pub custom: T
+    pub custom: T,
+    #[serde(default)]
+    pub database_admin: Option<DatabaseAdminSettings>,
 }
+
+/// Admin / provisioning credentials used by the mae testing framework.
+///
+/// When present in `configuration/base.yaml` under the `database_admin` key,
+/// these values replace the old `.env` / dotenvy approach entirely.  Every
+/// field carries a sensible default so services only need to override what
+/// differs from the standard mae-postgres layout.
+#[derive(serde::Deserialize, Clone, Debug)]
+pub struct DatabaseAdminSettings {
+    #[serde(default = "default_admin_migrations_path")]
+    pub admin_migrations_path: String,
+    #[serde(default = "default_app_migrations_path")]
+    pub app_migrations_path: String,
+    #[serde(default = "default_superuser")]
+    pub superuser: String,
+    #[serde(default = "default_superuser_pwd")]
+    pub superuser_pwd: String,
+    #[serde(default = "default_migrator_user")]
+    pub migrator_user: String,
+    #[serde(default = "default_migrator_pwd")]
+    pub migrator_pwd: String,
+    #[serde(default = "default_app_user")]
+    pub app_user: String,
+    #[serde(default = "default_app_user_pwd")]
+    pub app_user_pwd: String,
+    #[serde(default = "default_table_provisioner_user")]
+    pub table_provisioner_user: String,
+    #[serde(default = "default_table_provisioner_pwd")]
+    pub table_provisioner_pwd: String,
+    #[serde(default = "default_search_path")]
+    pub search_path: String,
+}
+
+fn default_admin_migrations_path() -> String { "admin_migrations".into() }
+fn default_app_migrations_path() -> String { "migrations".into() }
+fn default_superuser() -> String { "postgres".into() }
+fn default_superuser_pwd() -> String { "password".into() }
+fn default_migrator_user() -> String { "db_migrator".into() }
+fn default_migrator_pwd() -> String { "migrator_secret".into() }
+fn default_app_user() -> String { "app".into() }
+fn default_app_user_pwd() -> String { "secret".into() }
+fn default_table_provisioner_user() -> String { "table_provisioner".into() }
+fn default_table_provisioner_pwd() -> String { "provisioner_secret".into() }
+fn default_search_path() -> String { "options=-csearch_path%3Dapp".into() }
 // DATABASE SETTINGS
 #[derive(serde::Deserialize, Clone)]
 pub struct DatabaseSettings {
