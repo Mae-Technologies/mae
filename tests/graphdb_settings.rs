@@ -12,7 +12,6 @@ use anyhow::Result;
 use mae::app::configuration::GraphDatabaseSettings;
 use mae::testing::must::must_eq;
 use mae_macros::mae_test;
-use secrecy::SecretString;
 
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn graphdb_settings_connect_returns_live_graph() -> Result<()> {
@@ -24,12 +23,12 @@ async fn graphdb_settings_connect_returns_live_graph() -> Result<()> {
         .map(|(h, _)| h.to_string())
         .ok_or_else(|| anyhow::anyhow!("unexpected bolt URL format: {bolt_url}"))?;
 
-    let settings = GraphDatabaseSettings {
-        host,
-        port: bolt_port,
-        username: "neo4j".to_string(),
-        password: SecretString::new("testpassword".to_string().into()),
-    };
+    // Load credentials (username/password) from YAML config.
+    // Override host/port with the live container's actual values.
+    let mut settings = GraphDatabaseSettings::from_config()
+        .map_err(|e| anyhow::anyhow!("failed to load graphdb config: {e}"))?;
+    settings.host = host;
+    settings.port = bolt_port;
 
     let graph = settings.connect().await?;
 

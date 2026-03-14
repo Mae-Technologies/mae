@@ -169,6 +169,30 @@ impl GraphDatabaseSettings {
             .await
             .with_context(|| format!("failed to connect to Neo4j at {}", bolt_url))
     }
+
+    /// Load [`GraphDatabaseSettings`] from the `graphdb` key in the YAML config files.
+    ///
+    /// Reads `configuration/base.yaml` and the environment-specific override
+    /// (`APP_ENVIRONMENT`, defaulting to `"test"`). Useful in tests that need
+    /// credentials from config without loading the full [`Settings<T>`].
+    ///
+    /// # Errors
+    /// Returns an error if the config files are missing or the `graphdb` key
+    /// cannot be deserialised.
+    pub fn from_config() -> anyhow::Result<Self> {
+        let base_path = std::env::current_dir()
+            .context("failed to determine current directory")?;
+        let config_dir = base_path.join("configuration");
+        let env_name = std::env::var("APP_ENVIRONMENT")
+            .unwrap_or_else(|_| "test".into());
+        let raw = config::Config::builder()
+            .add_source(config::File::from(config_dir.join("base.yaml")))
+            .add_source(config::File::from(config_dir.join(format!("{env_name}.yaml"))))
+            .build()
+            .context("failed to build configuration")?;
+        raw.get::<Self>("graphdb")
+            .context("failed to deserialise graphdb configuration")
+    }
 }
 
 // APPLICATION & ENVIRONMENT
