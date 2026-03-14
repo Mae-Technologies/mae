@@ -1,0 +1,15 @@
+# configuration/base.yaml
+application:
+  host: "0.0.0.0"
+  port: 0
+  base_url: "http://127.0.0.1:0"
+  hmac_secret: "test-hmac-secret-for-mae-crate-testing"
+database:
+  host: "127.0.0.1"
+  port: 5432
+  username: "app"
+  password: "secret"
+  database_name: "mae_test"
+  require_ssl: false
+redis_uri: "redis://127.0.0.1:6379"
+custom: {}

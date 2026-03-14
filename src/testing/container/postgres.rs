@@ -1,8 +1,12 @@
-//! Postgres container singleton + per-test schema isolation.
+//! Postgres container singleton for mae integration tests.
+//!
+//! Per-test isolation is achieved via transaction rollback (`pool.begin()` +
+//! drop), not DDL-based schema creation.  This avoids requiring elevated
+//! database permissions that hardened postgres-mae doesn't grant.
 
 use crate::testing::{env, must::MustExpect};
 use anyhow::{Context, Result, bail};
-use sqlx::{Connection, Executor, PgConnection, PgPool};
+use sqlx::PgPool;
 use std::sync::Arc;
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
@@ -21,22 +25,18 @@ pub struct Inner {
 static SINGLETON: OnceCell<Mutex<Option<Inner>>> = OnceCell::const_new();
 static POOL: OnceCell<PgPool> = OnceCell::const_new();
 
-pub struct PgScope {
-    pub schema: String,
-    pub conn: PgConnection
-}
-
 pub struct PostgresContainer;
 
 impl MaeContainer for PostgresContainer {
-    type Scope = PgScope;
+    type Scope = ();
 
     async fn start() -> Option<()> {
         pg_singleton().await.lock().await.as_ref().map(|_| ())
     }
 
-    async fn scope() -> Result<PgScope> {
-        spawn_scoped_schema().await
+    async fn scope() -> Result<()> {
+        // Isolation is handled via transaction rollback at the test level.
+        Ok(())
     }
 
     async fn teardown() {
@@ -95,15 +95,6 @@ pub async fn pg_singleton() -> &'static Mutex<Option<Inner>> {
         .await
 }
 
-pub async fn spawn_scoped_schema() -> Result<PgScope> {
-    let schema = format!("test_{}", Uuid::new_v4().to_string().replace('-', ""));
-    let url = connection_url().await?;
-
-    let mut conn = PgConnection::connect(&url).await.context("failed to connect to Postgres")?;
-    conn.execute(format!(r#"SET search_path TO "{}""#, schema).as_str()).await?;
-    Ok(PgScope { schema, conn })
-}
-
 pub async fn teardown() {
     if let Some(m) = SINGLETON.get() {
         let mut guard = m.lock().await;
@@ -121,14 +112,14 @@ pub(crate) async fn shared_pool() -> Result<&'static PgPool> {
                     run_premigration_container(inner)
                         .await
                         .context("pre-migration script failed")?;
-                    let url = env::load().app_database_url_with_port(inner.port);
+                    let url = env::load().database_url_with_port(inner.port);
                     return PgPool::connect(&url).await.context("failed to connect to postgres");
                 }
 
                 let conf = env::load();
                 ensure_test_db_name(&conf.app_db_name)?;
                 run_premigration_fallback(conf).await.context("pre-migration script failed")?;
-                PgPool::connect(&conf.app_database_url())
+                PgPool::connect(&conf.migrator_database_url())
                     .await
                     .context("failed to connect to postgres fallback")
             }
@@ -169,17 +160,6 @@ async fn run_migrations(migrator_url: &str) -> Result<()> {
 
     migrator_pool.close().await;
     Ok(())
-}
-
-async fn connection_url() -> Result<String> {
-    if let Some(inner) = pg_singleton().await.lock().await.as_ref() {
-        return Ok(env::load().app_database_url_with_port(inner.port));
-    }
-
-    let conf = env::load();
-    ensure_test_db_name(&conf.app_db_name)?;
-
-    Ok(conf.app_database_url())
 }
 
 fn ensure_test_db_name(db_name: &str) -> Result<()> {
