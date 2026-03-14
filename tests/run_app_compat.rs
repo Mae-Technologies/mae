@@ -19,6 +19,7 @@ use mae::app::prelude::*;
 
 // ── Minimal App implementation ────────────────────────────────────────────────
 
+#[allow(dead_code)]
 struct CompatCheck {
     port: u16,
     server: Server
