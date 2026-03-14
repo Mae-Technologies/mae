@@ -14,6 +14,7 @@
 
 #![cfg(feature = "integration-testing")]
 
+use mae::app;
 use mae::app::prelude::*;
 
 // ── Minimal App implementation ────────────────────────────────────────────────
