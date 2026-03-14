@@ -156,7 +156,7 @@ async fn ensure_started() -> Result<()> {
     let mut guard = neo4j_mutex().lock().await;
     if guard.is_none() {
         let container: ContainerAsync<Neo4jImage> =
-            Neo4j::new().start().await.context("failed to start Neo4j container")?;
+            Neo4j::new().with_password("testpassword").start().await.context("failed to start Neo4j container")?;
 
         let bolt_port = container
             .image()
