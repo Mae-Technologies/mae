@@ -1,51 +1,48 @@
 //! Integration smoke test for GraphDatabaseSettings::connect().
 //!
-//! Requires MAE_TESTCONTAINERS=1 or a running Neo4j at localhost:7687.
-//! Run with: cargo test --features integration-testing --test graphdb_settings
+//! Gated behind the `integration-testing` feature flag and the Docker flag
+//! (`MAE_TESTCONTAINERS=1` at compile time).
+//!
+//! Run with:
+//!   MAE_TESTCONTAINERS=1 cargo test --features integration-testing --test graphdb_settings
 
-#[cfg(test)]
-mod tests {
-    use mae::app::configuration::GraphDatabaseSettings;
-    use secrecy::SecretString;
+#![cfg(feature = "integration-testing")]
 
-    #[tokio::test]
-    #[cfg_attr(not(feature = "integration-testing"), ignore)]
-    async fn graphdb_settings_connect_returns_live_graph() {
-        // Use testcontainers if available, else expect localhost:7687
-        let (host, port) = if std::env::var("MAE_TESTCONTAINERS")
-            .map(|v| v == "1")
-            .unwrap_or(false)
-        {
-            let (url, bolt_port) = mae::testing::container::neo4j::get_neo4j_bolt()
-                .await
-                .expect("neo4j container");
-            let host = url
-                .trim_start_matches("bolt://")
-                .rsplit_once(':')
-                .map(|(h, _)| h.to_string())
-                .unwrap_or_else(|| "localhost".to_string());
-            (host, bolt_port)
-        } else {
-            ("localhost".to_string(), 7687u16)
-        };
+use anyhow::Result;
+use mae::app::configuration::GraphDatabaseSettings;
+use mae::testing::must::must_eq;
+use mae_macros::mae_test;
+use secrecy::SecretString;
 
-        let settings = GraphDatabaseSettings {
-            host,
-            port,
-            username: "neo4j".to_string(),
-            password: SecretString::new("neo4j".to_string().into()),
-        };
+#[cfg_attr(miri, ignore)]
+#[mae_test(docker, teardown = mae::testing::container::teardown_all)]
+async fn graphdb_settings_connect_returns_live_graph() -> Result<()> {
+    let (bolt_url, bolt_port) = mae::testing::container::neo4j::get_neo4j_bolt().await?;
 
-        let graph = settings.connect().await.expect("should connect to neo4j");
+    let host = bolt_url
+        .trim_start_matches("bolt://")
+        .rsplit_once(':')
+        .map(|(h, _)| h.to_string())
+        .ok_or_else(|| anyhow::anyhow!("unexpected bolt URL format: {bolt_url}"))?;
 
-        // Smoke test: run a simple Cypher query
-        let mut result = graph
-            .execute(neo4rs::query("RETURN 1 AS n"))
-            .await
-            .expect("query should execute");
+    let settings = GraphDatabaseSettings {
+        host,
+        port: bolt_port,
+        username: "neo4j".to_string(),
+        password: SecretString::new("neo4j".to_string().into()),
+    };
 
-        let row = result.next().await.expect("stream ok").expect("one row");
-        let n: i64 = row.get("n").expect("field n");
-        assert_eq!(n, 1);
-    }
+    let graph = settings.connect().await?;
+
+    let mut result = graph.execute(neo4rs::query("RETURN 1 AS n")).await?;
+
+    let row = result
+        .next()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("expected one row from RETURN 1 AS n"))?;
+
+    let n: i64 = row.get("n")?;
+    must_eq(n, 1_i64);
+
+    Ok(())
 }
