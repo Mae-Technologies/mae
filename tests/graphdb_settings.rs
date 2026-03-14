@@ -28,7 +28,7 @@ async fn graphdb_settings_connect_returns_live_graph() -> Result<()> {
         host,
         port: bolt_port,
         username: "neo4j".to_string(),
-        password: SecretString::new("neo4j".to_string().into()),
+        password: SecretString::new("testpassword".to_string().into()),
     };
 
     let graph = settings.connect().await?;
