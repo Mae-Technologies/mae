@@ -48,7 +48,8 @@ pub trait App {
             let listener = TcpListener::bind(address)?;
             let port = listener.local_addr()?.port();
 
-            let context = config.custom.context();
+            let mut context = config.custom.context();
+            config.custom.init_context(&mut context).await?;
 
             let server = Self::run(
                 listener,
@@ -69,6 +70,27 @@ pub trait DeriveContext<C> {
     fn context(&self) -> C
     where
         Self: Sized;
+
+    /// Async initialization hook called after context creation, before serving.
+    ///
+    /// Override this to perform async startup work (e.g. opening database
+    /// connections, seeding caches) that must complete before the server begins
+    /// accepting requests.  The default implementation is a no-op, so existing
+    /// services that do not need async init are unaffected.
+    ///
+    /// # Errors
+    ///
+    /// Return an [`anyhow::Error`] to abort startup; the error will propagate
+    /// out of [`App::build`] and terminate the process.
+    fn init_context(
+        &self,
+        _ctx: &mut C
+    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send + '_
+    where
+        Self: Sized
+    {
+        async { Ok(()) }
+    }
 }
 
 pub struct ApplicationBaseUrl(pub String);
