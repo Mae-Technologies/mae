@@ -121,14 +121,16 @@ pub(crate) async fn shared_pool() -> Result<&'static PgPool> {
                     run_premigration_container(inner)
                         .await
                         .context("pre-migration script failed")?;
-                    let url = env::load().app_database_url_with_port(inner.port);
+                    // Use migrator connection — has CREATE SCHEMA rights for
+                    // per-test schema isolation (app user only has DML rights).
+                    let url = env::load().database_url_with_port(inner.port);
                     return PgPool::connect(&url).await.context("failed to connect to postgres");
                 }
 
                 let conf = env::load();
                 ensure_test_db_name(&conf.app_db_name)?;
                 run_premigration_fallback(conf).await.context("pre-migration script failed")?;
-                PgPool::connect(&conf.app_database_url())
+                PgPool::connect(&conf.migrator_database_url())
                     .await
                     .context("failed to connect to postgres fallback")
             }
@@ -153,34 +155,34 @@ async fn run_premigration_container(inner: &Inner) -> Result<()> {
     let migrator_url = e.database_url_with_port(port);
     run_migrations(&migrator_url).await?;
 
-    // Grant CREATE on database to app user for per-test schema isolation
-    grant_create_to_app_user(e, port).await
+    // Grant CREATE on database to migrator for per-test schema isolation
+    grant_schema_create(e, port).await
 }
 
 async fn run_premigration_fallback(conf: &env::DotEnv) -> Result<()> {
     run_migrations(&conf.migrator_database_url()).await?;
 
-    // Grant CREATE on database to app user for per-test schema isolation
-    grant_create_to_app_user(conf, conf._db_port).await
+    // Grant CREATE on database to migrator for per-test schema isolation
+    grant_schema_create(conf, conf._db_port).await
 }
 
-/// Connect as superuser and GRANT CREATE ON DATABASE to the app user so that
-/// `spawn_scoped_schema()` can create per-test schemas via the app pool.
-async fn grant_create_to_app_user(conf: &env::DotEnv, port: u16) -> Result<()> {
-    let super_url = conf.super_database_url_with_port(port);
-    let super_pool =
-        PgPool::connect(&super_url).await.context("failed to connect as superuser")?;
-    super_pool
+/// Use superuser to GRANT CREATE ON DATABASE to the migrator role so that
+/// `spawn_scoped_schema()` can create per-test schemas via the migrator pool.
+async fn grant_schema_create(conf: &env::DotEnv, port: u16) -> Result<()> {
+    let migrator_url = conf.database_url_with_port(port);
+    let migrator_pool =
+        PgPool::connect(&migrator_url).await.context("failed to connect as migrator")?;
+    migrator_pool
         .execute(
             format!(
                 r#"GRANT CREATE ON DATABASE "{}" TO "{}""#,
-                conf.app_db_name, conf.app_user
+                conf.app_db_name, conf.migrator_user
             )
             .as_str(),
         )
         .await
-        .context("failed to grant CREATE to app user")?;
-    super_pool.close().await;
+        .context("failed to grant CREATE to migrator")?;
+    migrator_pool.close().await;
     Ok(())
 }
 
@@ -199,13 +201,14 @@ async fn run_migrations(migrator_url: &str) -> Result<()> {
 
 async fn connection_url() -> Result<String> {
     if let Some(inner) = pg_singleton().await.lock().await.as_ref() {
-        return Ok(env::load().app_database_url_with_port(inner.port));
+        // Use migrator connection for DDL (CREATE SCHEMA) rights.
+        return Ok(env::load().database_url_with_port(inner.port));
     }
 
     let conf = env::load();
     ensure_test_db_name(&conf.app_db_name)?;
 
-    Ok(conf.app_database_url())
+    Ok(conf.migrator_database_url())
 }
 
 fn ensure_test_db_name(db_name: &str) -> Result<()> {
