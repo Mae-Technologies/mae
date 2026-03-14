@@ -5,6 +5,7 @@ use secrecy::SecretString;
 use sqlx::PgPool;
 use std::net::TcpListener;
 
+
 pub trait Run: App {
     fn run_until_stopped(
         self
@@ -18,6 +19,7 @@ pub trait Run: App {
     fn run<Context: Clone + Send + 'static>(
         listener: TcpListener,
         db_pool: PgPool,
+        graph_pool: neo4rs::Graph,
         base_url: String,
         hmac_secret: SecretString,
         redis_uri: SecretString,
@@ -43,6 +45,8 @@ pub trait App {
         async move {
             let connection_pool = config.database.get_connection_pool();
 
+            let graph_pool = config.graphdb.connect().await?;
+
             let address = format!("{}:{}", config.application.host, config.application.port);
 
             let listener = TcpListener::bind(address)?;
@@ -54,6 +58,7 @@ pub trait App {
             let server = Self::run(
                 listener,
                 connection_pool,
+                graph_pool,
                 config.application.base_url,
                 config.application.hmac_secret,
                 config.redis_uri,

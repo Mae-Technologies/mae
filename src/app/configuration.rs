@@ -37,7 +37,8 @@ pub struct Settings<T> {
     pub redis_uri: SecretString,
     pub custom: T,
     #[serde(default)]
-    pub database_admin: Option<DatabaseAdminSettings>
+    pub database_admin: Option<DatabaseAdminSettings>,
+    pub graphdb: GraphDatabaseSettings
 }
 
 /// Admin / provisioning credentials used by the mae testing framework.
@@ -132,6 +133,41 @@ impl DatabaseSettings {
 
     pub fn get_connection_pool(&self) -> PgPool {
         PgPoolOptions::new().connect_lazy_with(self.connect_options())
+    }
+}
+
+// GRAPH DATABASE SETTINGS
+
+/// Connection settings for a Neo4j graph database.
+///
+/// Deserialised from the `graphdb` key in `base.yaml`:
+///
+/// ```yaml
+/// graphdb:
+///   host: "localhost"
+///   port: 7687
+///   username: "neo4j"
+///   password: "secret"
+/// ```
+#[derive(serde::Deserialize, Clone)]
+pub struct GraphDatabaseSettings {
+    pub host: String,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    pub port: u16,
+    pub username: String,
+    pub password: SecretString
+}
+
+impl GraphDatabaseSettings {
+    /// Connect to Neo4j and return a live [`neo4rs::Graph`] handle.
+    ///
+    /// # Errors
+    /// Returns an error if the Bolt connection cannot be established.
+    pub async fn connect(&self) -> anyhow::Result<neo4rs::Graph> {
+        let bolt_url = format!("bolt://{}:{}", self.host, self.port);
+        neo4rs::Graph::new(&bolt_url, self.username.clone(), self.password.expose_secret())
+            .await
+            .with_context(|| format!("failed to connect to Neo4j at {}", bolt_url))
     }
 }
 
