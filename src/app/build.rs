@@ -5,7 +5,6 @@ use secrecy::SecretString;
 use sqlx::PgPool;
 use std::net::TcpListener;
 
-
 pub trait Run: App {
     fn run_until_stopped(
         self
