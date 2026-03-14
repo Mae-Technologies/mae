@@ -84,10 +84,10 @@ pub trait DeriveContext<C> {
     /// out of [`App::build`] and terminate the process.
     fn init_context(
         &self,
-        _ctx: &mut C,
+        _ctx: &mut C
     ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send + '_
     where
-        Self: Sized,
+        Self: Sized
     {
         async { Ok(()) }
     }
