@@ -23,9 +23,9 @@ mod test_context {
     #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
     async fn parallelism() -> Result<()> {
         let ctx = get_context().await?;
-        let mut conn = ctx.custom.scoped_connection().await?;
+        let mut tx = ctx.db_pool.begin().await?;
 
-        let n: i32 = sqlx::query("SELECT 1").fetch_one(&mut conn).await?.get(0);
+        let n: i32 = sqlx::query("SELECT 1").fetch_one(&mut *tx).await?.get(0);
         must_eq(n, 1);
 
         Ok(())
@@ -35,9 +35,9 @@ mod test_context {
     #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
     async fn uses_test_context_schema_isolation() -> Result<()> {
         let ctx = get_context().await?;
-        let mut conn = ctx.custom.scoped_connection().await?;
+        let mut tx = ctx.db_pool.begin().await?;
 
-        sqlx::query("SELECT 1").execute(&mut conn).await?;
+        sqlx::query("SELECT 1").execute(&mut *tx).await?;
 
         Ok(())
     }

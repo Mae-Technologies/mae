@@ -1,8 +1,12 @@
-//! Postgres container singleton + per-test schema isolation.
+//! Postgres container singleton for mae integration tests.
+//!
+//! Per-test isolation is achieved via transaction rollback (`pool.begin()` +
+//! drop), not DDL-based schema creation.  This avoids requiring elevated
+//! database permissions that hardened postgres-mae doesn't grant.
 
 use crate::testing::{env, must::MustExpect};
 use anyhow::{Context, Result, bail};
-use sqlx::{Connection, Executor, PgConnection, PgPool};
+use sqlx::PgPool;
 use std::sync::Arc;
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
@@ -21,22 +25,18 @@ pub struct Inner {
 static SINGLETON: OnceCell<Mutex<Option<Inner>>> = OnceCell::const_new();
 static POOL: OnceCell<PgPool> = OnceCell::const_new();
 
-pub struct PgScope {
-    pub schema: String,
-    pub conn: PgConnection
-}
-
 pub struct PostgresContainer;
 
 impl MaeContainer for PostgresContainer {
-    type Scope = PgScope;
+    type Scope = ();
 
     async fn start() -> Option<()> {
         pg_singleton().await.lock().await.as_ref().map(|_| ())
     }
 
-    async fn scope() -> Result<PgScope> {
-        spawn_scoped_schema().await
+    async fn scope() -> Result<()> {
+        // Isolation is handled via transaction rollback at the test level.
+        Ok(())
     }
 
     async fn teardown() {
@@ -95,15 +95,6 @@ pub async fn pg_singleton() -> &'static Mutex<Option<Inner>> {
         .await
 }
 
-pub async fn spawn_scoped_schema() -> Result<PgScope> {
-    let schema = format!("test_{}", Uuid::new_v4().to_string().replace('-', ""));
-    let url = connection_url().await?;
-
-    let mut conn = PgConnection::connect(&url).await.context("failed to connect to Postgres")?;
-    conn.execute(format!(r#"SET search_path TO "{}""#, schema).as_str()).await?;
-    Ok(PgScope { schema, conn })
-}
-
 pub async fn teardown() {
     if let Some(m) = SINGLETON.get() {
         let mut guard = m.lock().await;
@@ -121,8 +112,6 @@ pub(crate) async fn shared_pool() -> Result<&'static PgPool> {
                     run_premigration_container(inner)
                         .await
                         .context("pre-migration script failed")?;
-                    // Use migrator connection — has CREATE SCHEMA rights for
-                    // per-test schema isolation (app user only has DML rights).
                     let url = env::load().database_url_with_port(inner.port);
                     return PgPool::connect(&url).await.context("failed to connect to postgres");
                 }
@@ -153,37 +142,11 @@ async fn run_premigration_container(inner: &Inner) -> Result<()> {
 
     let e = env::load();
     let migrator_url = e.database_url_with_port(port);
-    run_migrations(&migrator_url).await?;
-
-    // Grant CREATE on database to migrator for per-test schema isolation
-    grant_schema_create(e, port).await
+    run_migrations(&migrator_url).await
 }
 
 async fn run_premigration_fallback(conf: &env::DotEnv) -> Result<()> {
-    run_migrations(&conf.migrator_database_url()).await?;
-
-    // Grant CREATE on database to migrator for per-test schema isolation
-    grant_schema_create(conf, conf._db_port).await
-}
-
-/// Use superuser to GRANT CREATE ON DATABASE to the migrator role so that
-/// `spawn_scoped_schema()` can create per-test schemas via the migrator pool.
-async fn grant_schema_create(conf: &env::DotEnv, port: u16) -> Result<()> {
-    let migrator_url = conf.database_url_with_port(port);
-    let migrator_pool =
-        PgPool::connect(&migrator_url).await.context("failed to connect as migrator")?;
-    migrator_pool
-        .execute(
-            format!(
-                r#"GRANT CREATE ON DATABASE "{}" TO "{}""#,
-                conf.app_db_name, conf.migrator_user
-            )
-            .as_str(),
-        )
-        .await
-        .context("failed to grant CREATE to migrator")?;
-    migrator_pool.close().await;
-    Ok(())
+    run_migrations(&conf.migrator_database_url()).await
 }
 
 async fn run_migrations(migrator_url: &str) -> Result<()> {
@@ -197,18 +160,6 @@ async fn run_migrations(migrator_url: &str) -> Result<()> {
 
     migrator_pool.close().await;
     Ok(())
-}
-
-async fn connection_url() -> Result<String> {
-    if let Some(inner) = pg_singleton().await.lock().await.as_ref() {
-        // Use migrator connection for DDL (CREATE SCHEMA) rights.
-        return Ok(env::load().database_url_with_port(inner.port));
-    }
-
-    let conf = env::load();
-    ensure_test_db_name(&conf.app_db_name)?;
-
-    Ok(conf.migrator_database_url())
 }
 
 fn ensure_test_db_name(db_name: &str) -> Result<()> {
