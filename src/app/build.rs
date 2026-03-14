@@ -18,6 +18,7 @@ pub trait Run: App {
     fn run<Context: Clone + Send + 'static>(
         listener: TcpListener,
         db_pool: PgPool,
+        graph_pool: neo4rs::Graph,
         base_url: String,
         hmac_secret: SecretString,
         redis_uri: SecretString,
@@ -43,17 +44,19 @@ pub trait App {
         async move {
             let connection_pool = config.database.get_connection_pool();
 
+            let graph_pool = config.graphdb.connect().await?;
+
             let address = format!("{}:{}", config.application.host, config.application.port);
 
             let listener = TcpListener::bind(address)?;
             let port = listener.local_addr()?.port();
 
-            let mut context = config.custom.context();
-            config.custom.init_context(&mut context).await?;
+            let context = config.custom.context();
 
             let server = Self::run(
                 listener,
                 connection_pool,
+                graph_pool,
                 config.application.base_url,
                 config.application.hmac_secret,
                 config.redis_uri,
@@ -70,27 +73,6 @@ pub trait DeriveContext<C> {
     fn context(&self) -> C
     where
         Self: Sized;
-
-    /// Async initialization hook called after context creation, before serving.
-    ///
-    /// Override this to perform async startup work (e.g. opening database
-    /// connections, seeding caches) that must complete before the server begins
-    /// accepting requests.  The default implementation is a no-op, so existing
-    /// services that do not need async init are unaffected.
-    ///
-    /// # Errors
-    ///
-    /// Return an [`anyhow::Error`] to abort startup; the error will propagate
-    /// out of [`App::build`] and terminate the process.
-    fn init_context(
-        &self,
-        _ctx: &mut C
-    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send + '_
-    where
-        Self: Sized
-    {
-        async { Ok(()) }
-    }
 }
 
 pub struct ApplicationBaseUrl(pub String);

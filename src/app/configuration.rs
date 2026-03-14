@@ -37,7 +37,8 @@ pub struct Settings<T> {
     pub redis_uri: SecretString,
     pub custom: T,
     #[serde(default)]
-    pub database_admin: Option<DatabaseAdminSettings>
+    pub database_admin: Option<DatabaseAdminSettings>,
+    pub graphdb: GraphDatabaseSettings
 }
 
 /// Admin / provisioning credentials used by the mae testing framework.
@@ -132,6 +133,62 @@ impl DatabaseSettings {
 
     pub fn get_connection_pool(&self) -> PgPool {
         PgPoolOptions::new().connect_lazy_with(self.connect_options())
+    }
+}
+
+// GRAPH DATABASE SETTINGS
+
+/// Connection settings for a Neo4j graph database.
+///
+/// Deserialised from the `graphdb` key in `base.yaml`:
+///
+/// ```yaml
+/// graphdb:
+///   host: "localhost"
+///   port: 7687
+///   username: "neo4j"
+///   password: "secret"
+/// ```
+#[derive(serde::Deserialize, Clone)]
+pub struct GraphDatabaseSettings {
+    pub host: String,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    pub port: u16,
+    pub username: String,
+    pub password: SecretString
+}
+
+impl GraphDatabaseSettings {
+    /// Connect to Neo4j and return a live [`neo4rs::Graph`] handle.
+    ///
+    /// # Errors
+    /// Returns an error if the Bolt connection cannot be established.
+    pub async fn connect(&self) -> anyhow::Result<neo4rs::Graph> {
+        let bolt_url = format!("bolt://{}:{}", self.host, self.port);
+        neo4rs::Graph::new(&bolt_url, self.username.clone(), self.password.expose_secret())
+            .await
+            .with_context(|| format!("failed to connect to Neo4j at {}", bolt_url))
+    }
+
+    /// Load [`GraphDatabaseSettings`] from the `graphdb` key in the YAML config files.
+    ///
+    /// Reads `configuration/base.yaml` and the environment-specific override
+    /// (`APP_ENVIRONMENT`, defaulting to `"test"`). Useful in tests that need
+    /// credentials from config without loading the full [`Settings<T>`].
+    ///
+    /// # Errors
+    /// Returns an error if the config files are missing or the `graphdb` key
+    /// cannot be deserialised.
+    pub fn from_config() -> anyhow::Result<Self> {
+        let base_path = std::env::current_dir().context("failed to determine current directory")?;
+        let config_dir = base_path.join("configuration");
+        let env_name = std::env::var("APP_ENVIRONMENT").unwrap_or_else(|_| "test".into());
+        let raw = config::Config::builder()
+            .add_source(config::File::from(config_dir.join("base.yaml")))
+            .add_source(config::File::from(config_dir.join(format!("{env_name}.yaml"))))
+            .build()
+            .context("failed to build configuration")?;
+        raw.get::<Self>("graphdb").context("failed to deserialise graphdb configuration")
     }
 }
 
