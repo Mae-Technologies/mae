@@ -14,7 +14,6 @@ use mae::testing::must::must_eq;
 use mae_macros::mae_test;
 use secrecy::SecretString;
 
-#[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn graphdb_settings_connect_returns_live_graph() -> Result<()> {
     let (bolt_url, bolt_port) = mae::testing::container::neo4j::get_neo4j_bolt().await?;
