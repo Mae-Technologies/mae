@@ -1,4 +1,9 @@
 # configuration/test.yaml
+graphdb:
+  host: "localhost"
+  port: "7687"
+  username: "neo4j"
+  password: "neo4j"
 database_admin:
   admin_migrations_path: "admin_migrations"
   app_migrations_path: "migrations"
