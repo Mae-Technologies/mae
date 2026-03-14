@@ -177,22 +177,32 @@ fn try_from_yaml_config() -> Option<DotEnv> {
     // since the config value may already include it (e.g. `mae_test`).
     let app_db_name = settings.database.database_name.clone();
 
-    let super_database_url = build_pg_url(
-        &admin.superuser, &admin.superuser_pwd,
-        &db_host, db_port, &app_db_name, None,
-    );
+    let super_database_url =
+        build_pg_url(&admin.superuser, &admin.superuser_pwd, &db_host, db_port, &app_db_name, None);
     let migrator_database_url = build_pg_url(
-        &admin.migrator_user, &admin.migrator_pwd,
-        &db_host, db_port, &app_db_name, Some(&admin.search_path),
+        &admin.migrator_user,
+        &admin.migrator_pwd,
+        &db_host,
+        db_port,
+        &app_db_name,
+        Some(&admin.search_path)
     );
     let database_url = migrator_database_url.clone();
     let app_database_url = build_pg_url(
-        &admin.app_user, &admin.app_user_pwd,
-        &db_host, db_port, &app_db_name, Some(&admin.search_path),
+        &admin.app_user,
+        &admin.app_user_pwd,
+        &db_host,
+        db_port,
+        &app_db_name,
+        Some(&admin.search_path)
     );
     let table_creator_database_url = build_pg_url(
-        &admin.table_provisioner_user, &admin.table_provisioner_pwd,
-        &db_host, db_port, &app_db_name, Some(&admin.search_path),
+        &admin.table_provisioner_user,
+        &admin.table_provisioner_pwd,
+        &db_host,
+        db_port,
+        &app_db_name,
+        Some(&admin.search_path)
     );
 
     // Safety guards
@@ -221,7 +231,7 @@ fn try_from_yaml_config() -> Option<DotEnv> {
         _migrator_database_url: migrator_database_url,
         _app_database_url: app_database_url,
         _table_creator_database_url: table_creator_database_url,
-        _database_url: database_url,
+        _database_url: database_url
     })
 }
 
@@ -265,9 +275,8 @@ fn load_from_dotenvy() -> DotEnv {
         .into_owned();
 
     let raw = get("DATABASE_URL");
-    let database_url = shellexpand::env(&raw)
-        .must_expect("DATABASE_URL contains unknown env vars")
-        .into_owned();
+    let database_url =
+        shellexpand::env(&raw).must_expect("DATABASE_URL contains unknown env vars").into_owned();
 
     let raw = get("APP_DATABASE_URL");
     let app_database_url = shellexpand::env(&raw)
@@ -305,7 +314,7 @@ fn load_from_dotenvy() -> DotEnv {
         _migrator_database_url: migrator_database_url,
         _app_database_url: app_database_url,
         _table_creator_database_url: table_creator_database_url,
-        _database_url: database_url,
+        _database_url: database_url
     }
 }
 

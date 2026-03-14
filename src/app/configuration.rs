@@ -37,7 +37,7 @@ pub struct Settings<T> {
     pub redis_uri: SecretString,
     pub custom: T,
     #[serde(default)]
-    pub database_admin: Option<DatabaseAdminSettings>,
+    pub database_admin: Option<DatabaseAdminSettings>
 }
 
 /// Admin / provisioning credentials used by the mae testing framework.
@@ -69,20 +69,42 @@ pub struct DatabaseAdminSettings {
     #[serde(default = "default_table_provisioner_pwd")]
     pub table_provisioner_pwd: String,
     #[serde(default = "default_search_path")]
-    pub search_path: String,
+    pub search_path: String
 }
 
-fn default_admin_migrations_path() -> String { "admin_migrations".into() }
-fn default_app_migrations_path() -> String { "migrations".into() }
-fn default_superuser() -> String { "postgres".into() }
-fn default_superuser_pwd() -> String { "password".into() }
-fn default_migrator_user() -> String { "db_migrator".into() }
-fn default_migrator_pwd() -> String { "migrator_secret".into() }
-fn default_app_user() -> String { "app".into() }
-fn default_app_user_pwd() -> String { "secret".into() }
-fn default_table_provisioner_user() -> String { "table_provisioner".into() }
-fn default_table_provisioner_pwd() -> String { "provisioner_secret".into() }
-fn default_search_path() -> String { "options=-csearch_path%3Dapp".into() }
+fn default_admin_migrations_path() -> String {
+    "admin_migrations".into()
+}
+fn default_app_migrations_path() -> String {
+    "migrations".into()
+}
+fn default_superuser() -> String {
+    "postgres".into()
+}
+fn default_superuser_pwd() -> String {
+    "password".into()
+}
+fn default_migrator_user() -> String {
+    "db_migrator".into()
+}
+fn default_migrator_pwd() -> String {
+    "migrator_secret".into()
+}
+fn default_app_user() -> String {
+    "app".into()
+}
+fn default_app_user_pwd() -> String {
+    "secret".into()
+}
+fn default_table_provisioner_user() -> String {
+    "table_provisioner".into()
+}
+fn default_table_provisioner_pwd() -> String {
+    "provisioner_secret".into()
+}
+fn default_search_path() -> String {
+    "options=-csearch_path%3Dapp".into()
+}
 // DATABASE SETTINGS
 #[derive(serde::Deserialize, Clone)]
 pub struct DatabaseSettings {

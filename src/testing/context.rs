@@ -22,7 +22,7 @@ pub struct TestContext<C = ()> {
     /// Service-specific context, accessible from within tests.
     pub inner: C,
     /// Shared Postgres pool for this test run.
-    pub pool: PgPool,
+    pub pool: PgPool
 }
 
 impl<C: Default + Clone> TestContext<C> {
