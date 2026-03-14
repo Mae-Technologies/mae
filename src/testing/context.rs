@@ -51,13 +51,13 @@ impl<C: Default + Clone> TestContext<C> {
 /// Create a unique schema (`test_<uuid>`) for one test.
 pub async fn spawn_scoped_schema(pool: &PgPool) -> Result<String> {
     let schema = format!("test_{}", Uuid::new_v4().simple());
-    pool.execute(format!(r#"CREATE SCHEMA IF NOT EXISTS \"{schema}\""#).as_str()).await?;
+    pool.execute(format!(r#"CREATE SCHEMA IF NOT EXISTS "{schema}""#).as_str()).await?;
     Ok(schema)
 }
 
 /// Drop a previously-created scoped schema.
 pub async fn teardown(pool: &PgPool, schema: &str) -> Result<()> {
-    pool.execute(format!(r#"DROP SCHEMA IF EXISTS \"{schema}\" CASCADE"#).as_str()).await?;
+    pool.execute(format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#).as_str()).await?;
     Ok(())
 }
 

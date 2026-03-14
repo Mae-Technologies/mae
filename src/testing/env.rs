@@ -172,7 +172,10 @@ fn try_from_yaml_config() -> Option<DotEnv> {
 
     let db_host = settings.database.host.clone();
     let db_port = settings.database.port;
-    let app_db_name = format!("{}_test", settings.database.database_name);
+    // Use the database name as-is from config. The `assert_test_database` guard
+    // below ensures it contains `_test` — don't blindly append `_test` here
+    // since the config value may already include it (e.g. `mae_test`).
+    let app_db_name = settings.database.database_name.clone();
 
     let super_database_url = build_pg_url(
         &admin.superuser, &admin.superuser_pwd,
