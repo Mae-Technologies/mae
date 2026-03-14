@@ -158,8 +158,12 @@ pub fn load() -> &'static DotEnv {
 fn try_from_yaml_config() -> Option<DotEnv> {
     use crate::app::configuration::get_configuration;
 
-    // Force test environment so configuration/test.yaml is loaded
-    std::env::set_var("APP_ENVIRONMENT", "test");
+    // Only load YAML config when running in test environment.
+    // set_var is unsafe in a library — just check and bail if not test.
+    let app_env = std::env::var("APP_ENVIRONMENT").unwrap_or_default();
+    if app_env != "test" {
+        return None;
+    }
 
     // We need *some* concrete type for the `custom` generic.  `serde_json::Value`
     // accepts anything so we don't impose constraints on the service's custom block.
