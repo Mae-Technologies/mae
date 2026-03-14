@@ -21,7 +21,7 @@ use mae::app::prelude::*;
 
 struct CompatCheck {
     port: u16,
-    server: Server,
+    server: Server
 }
 
 impl App for CompatCheck {
@@ -58,7 +58,7 @@ impl Run for CompatCheck {
         _base_url: String,
         _hmac_secret: SecretString,
         _redis_uri: SecretString,
-        _custom_context: Context,
+        _custom_context: Context
     ) -> impl std::future::Future<Output = Result<Server, anyhow::Error>> + Send {
         // The macro picks up only the first statement and splices it as the
         // last builder chain call (.first_statement).  A no-op scope is the
