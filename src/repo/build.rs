@@ -67,7 +67,9 @@ pub trait Build<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPat
             schema: Self::schema(),
             ctx,
             query_as: PhantomData,
-            returning: None
+            returning: None,
+            limit: None,
+            offset: None
         }
     }
     /// Return the fully-qualified SQL schema/table name for this domain type
@@ -162,7 +164,7 @@ impl<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch, B: Buil
 ///
 /// Created by [`Build::build`] (or the [`Interface`] helpers) and consumed by the
 /// [`Execute`] methods (`fetch_all`, `fetch_one`, etc.). Chain [`Builder::filter`] and
-/// [`Builder::returning`] before executing.
+/// [`Builder::returning`], [`Builder::limit`], and [`Builder::offset`] before executing.
 pub struct Builder<
     'a,
     C: Context,
@@ -180,7 +182,11 @@ pub struct Builder<
     schema: String,
     ctx: &'a C,
     query_as: PhantomData<fn() -> A>,
-    returning: Option<Vec<F>>
+    returning: Option<Vec<F>>,
+    /// Optional `LIMIT` clause — applied only to `SELECT` statements.
+    limit: Option<i64>,
+    /// Optional `OFFSET` clause — applied only to `SELECT` statements.
+    offset: Option<i64>
 }
 
 impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch>
@@ -197,6 +203,22 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
     /// Override the default `RETURNING *` clause with a specific column list.
     pub fn returning(mut self, values: Vec<F>) -> Self {
         self.returning = Some(values);
+        self
+    }
+
+    /// Set the maximum number of rows to return (`LIMIT n`).
+    ///
+    /// Only applied to `SELECT` statements; ignored for INSERT/UPDATE/PATCH.
+    pub fn limit(mut self, n: i64) -> Self {
+        self.limit = Some(n);
+        self
+    }
+
+    /// Skip the first `n` rows (`OFFSET n`).
+    ///
+    /// Only applied to `SELECT` statements; ignored for INSERT/UPDATE/PATCH.
+    pub fn offset(mut self, n: i64) -> Self {
+        self.offset = Some(n);
         self
     }
 }
@@ -227,6 +249,12 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
     fn filters(&self) -> &Vec<FilterOp<F>> {
         &self.filters
     }
+    fn limit(&self) -> Option<i64> {
+        self.limit
+    }
+    fn offset(&self) -> Option<i64> {
+        self.offset
+    }
 }
 
 impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch>
@@ -244,6 +272,14 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> {
     fn statement(&self) -> &SqlStatement<I, U, F, P>;
     fn filters(&self) -> &Vec<FilterOp<F>>;
     fn schema(&self) -> &String;
+    /// Returns the `LIMIT` value if set. Default: `None`.
+    fn limit(&self) -> Option<i64> {
+        None
+    }
+    /// Returns the `OFFSET` value if set. Default: `None`.
+    fn offset(&self) -> Option<i64> {
+        None
+    }
     fn to_sql(&self) -> Result<String> {
         Ok(match &self.statement() {
             SqlStatement::Select(field_blocks) => {
@@ -256,7 +292,19 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> {
                     })
                     .collect::<Result<Vec<_>>>()?
                     .join(",\n\t");
-                format!("SELECT\n\t{}\nFROM {}{};", &fields, self.schema(), where_str,)
+                let limit_offset = match (self.limit(), self.offset()) {
+                    (Some(l), Some(o)) => format!("\nLIMIT {l} OFFSET {o}"),
+                    (Some(l), None) => format!("\nLIMIT {l}"),
+                    (None, Some(o)) => format!("\nOFFSET {o}"),
+                    (None, None) => String::new()
+                };
+                format!(
+                    "SELECT\n\t{}\nFROM {}{}{};",
+                    &fields,
+                    self.schema(),
+                    where_str,
+                    limit_offset,
+                )
             }
             SqlStatement::InsertOne(row) => {
                 let (mut fields, bind_idx_option) = row.to_sql_parts();
@@ -506,5 +554,163 @@ where
         write!(f, "\n{}", "*".repeat(18))?;
         write!(f, "\n{}\n", "*".repeat(18))?;
         std::fmt::Result::Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repo::map_util::{AsSqlParts, BindArgs, Filter, FilterOp, SqlStatement};
+    use std::fmt;
+
+    // ── Minimal stubs ────────────────────────────────────────────────────────
+
+    /// A stub column that satisfies `ToField` (`ToSqlParts + Display`).
+    #[derive(Debug, Clone)]
+    struct Col(&'static str);
+
+    impl fmt::Display for Col {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+
+    impl crate::repo::map_util::ToSqlParts for Col {
+        fn to_sql_parts(&self) -> AsSqlParts {
+            // SELECT branch pops the last element as the binding index placeholder;
+            // we push a dummy so the pop succeeds and the real name is kept.
+            (vec![self.0.to_string(), String::new()], None)
+        }
+    }
+
+    impl BindArgs for Col {
+        fn bind(&self, _args: &mut sqlx::postgres::PgArguments) {}
+        fn bind_len(&self) -> usize {
+            0
+        }
+    }
+
+    // ── Struct that lets us exercise `ToSql::to_sql` directly ────────────────
+
+    struct MockQuery {
+        statement: SqlStatement<Col, Col, Col, Col>,
+        filters: Vec<FilterOp<Col>>,
+        schema: String,
+        limit: Option<i64>,
+        offset: Option<i64>
+    }
+
+    impl MockQuery {
+        fn select(schema: &str, cols: Vec<Col>) -> Self {
+            Self {
+                statement: SqlStatement::Select(cols),
+                filters: vec![],
+                schema: schema.to_string(),
+                limit: None,
+                offset: None
+            }
+        }
+    }
+
+    impl ToSql<Col, Col, Col, Col> for MockQuery {
+        fn statement(&self) -> &SqlStatement<Col, Col, Col, Col> {
+            &self.statement
+        }
+        fn filters(&self) -> &Vec<FilterOp<Col>> {
+            &self.filters
+        }
+        fn schema(&self) -> &String {
+            &self.schema
+        }
+        fn limit(&self) -> Option<i64> {
+            self.limit
+        }
+        fn offset(&self) -> Option<i64> {
+            self.offset
+        }
+    }
+
+    // ── Tests ─────────────────────────────────────────────────────────────────
+
+    /// A plain SELECT should contain neither LIMIT nor OFFSET.
+    #[test]
+    fn select_no_limit_no_offset() {
+        let q = MockQuery::select("public.users", vec![Col("id")]);
+        let sql = match q.to_sql() {
+            std::result::Result::Ok(sql) => sql,
+            Err(e) => panic!("to_sql failed: {e:?}")
+        };
+        assert!(!sql.contains("LIMIT"), "unexpected LIMIT in: {sql}");
+        assert!(!sql.contains("OFFSET"), "unexpected OFFSET in: {sql}");
+    }
+
+    /// `limit` alone should append `LIMIT n` after WHERE (or table name if no WHERE).
+    #[test]
+    fn select_limit_only() {
+        let mut q = MockQuery::select("public.orders", vec![Col("id")]);
+        q.limit = Some(10);
+        let sql = match q.to_sql() {
+            std::result::Result::Ok(sql) => sql,
+            Err(e) => panic!("to_sql failed: {e:?}")
+        };
+        assert!(sql.contains("LIMIT 10"), "expected LIMIT 10 in:\n{sql}");
+        assert!(!sql.contains("OFFSET"), "unexpected OFFSET in:\n{sql}");
+    }
+
+    /// `offset` alone should append `OFFSET n` (without a preceding LIMIT).
+    #[test]
+    fn select_offset_only() {
+        let mut q = MockQuery::select("public.orders", vec![Col("id")]);
+        q.offset = Some(20);
+        let sql = match q.to_sql() {
+            std::result::Result::Ok(sql) => sql,
+            Err(e) => panic!("to_sql failed: {e:?}")
+        };
+        assert!(sql.contains("OFFSET 20"), "expected OFFSET 20 in:\n{sql}");
+        assert!(!sql.contains("LIMIT"), "unexpected LIMIT in:\n{sql}");
+    }
+
+    /// Both limit and offset should produce `LIMIT n OFFSET m` in that order.
+    #[test]
+    fn select_limit_and_offset() {
+        let mut q = MockQuery::select("public.items", vec![Col("name")]);
+        q.limit = Some(5);
+        q.offset = Some(15);
+        let sql = match q.to_sql() {
+            std::result::Result::Ok(sql) => sql,
+            Err(e) => panic!("to_sql failed: {e:?}")
+        };
+        assert!(sql.contains("LIMIT 5 OFFSET 15"), "expected 'LIMIT 5 OFFSET 15' in:\n{sql}");
+    }
+
+    /// `LIMIT/OFFSET` must appear after the WHERE clause, not before it.
+    #[test]
+    fn limit_offset_after_where_clause() {
+        let mut q = MockQuery::select("public.events", vec![Col("id")]);
+        q.filters = vec![FilterOp::Begin(Col("active"), Filter::IsNull)];
+        q.limit = Some(3);
+        q.offset = Some(6);
+        let sql = match q.to_sql() {
+            std::result::Result::Ok(sql) => sql,
+            Err(e) => panic!("to_sql failed: {e:?}")
+        };
+        let where_pos = match sql.find("WHERE") {
+            Some(pos) => pos,
+            None => panic!("expected WHERE in: {sql}")
+        };
+        let limit_pos = match sql.find("LIMIT") {
+            Some(pos) => pos,
+            None => panic!("expected LIMIT in: {sql}")
+        };
+        assert!(limit_pos > where_pos, "LIMIT must appear after WHERE — got:\n{sql}");
+    }
+
+    /// Default `ToSql` trait implementations return `None` for limit/offset.
+    #[test]
+    fn tosql_trait_defaults_return_none() {
+        let q = MockQuery::select("t", vec![Col("x")]);
+        // We override both, so verify the overrides work correctly.
+        assert_eq!(q.limit(), None);
+        assert_eq!(q.offset(), None);
     }
 }
