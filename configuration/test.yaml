@@ -1,18 +1,10 @@
-# configuration/test.yaml
-graphdb:
-  host: "localhost"
-  port: "7687"
-  username: "neo4j"
-  password: "testpassword"
+database:
+  db_name: "service_test_db"
+
 database_admin:
-  admin_migrations_path: "admin_migrations"
-  app_migrations_path: "migrations"
-  superuser: "postgres"
-  superuser_pwd: "password"
-  migrator_user: "db_migrator"
-  migrator_pwd: "migrator_secret"
-  app_user: "app"
-  app_user_pwd: "secret"
-  table_provisioner_user: "table_provisioner"
-  table_provisioner_pwd: "provisioner_secret"
-  search_path: "options=-csearch_path%3Dapp"
+  db_name: "service_test_db"
+  superuser_password: "postgres"
+
+messagebroker:
+  username: "guest"
+  password: "guest"

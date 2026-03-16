@@ -144,16 +144,58 @@ Enforces workspace-wide dependency policy:
 
 [read the `cargo-deny` docs](https://embarkstudios.github.io/cargo-deny/checks/bans/cfg.html)
 
-### GitHub Actions CI (`.github/workflows/cooked-crab.yaml`)
+### GitHub Actions CI (`.github/workflows/ci.yml`)
 
-Triggers on push/PR to `main` or `master`. Includes:
+Triggers on PR to `main` or `production`. Runs four parallel jobs after **Mission Brief** (config parsing):
 
-- `cargo +nightly fmt -- --check`
-- `cargo +nightly clippy -- -D warnings -D clippy::undocumented_unsafe_blocks`
-- `cargo +nightly miri test`
-- `cargo deny check`
+- **🔐 Secret Scan** — trufflehog scan of the last commit
+- **🦀 Ferris Says No Bugs** — rustfmt, clippy, llvm-cov coverage, cargo-deny
+- **🔌 Connection Check** → **⚙️ Integration Gauntlet** — connectivity probe then integration tests via `bash scripts/int-test.sh --ci`
 
-Optimizes performance by detecting changed `.rs` files and skipping checks when no Rust code is modified.
+Coverage threshold is read from `.ci/ci_env.toml` (`coverage_threshold` key, default 45%).
+
+#### Configuring service-specific secrets
+
+Service-specific host secrets are declared in `.ci/ci_env.toml` — **not** hardcoded in the workflow YAML. The template ships with blank placeholders:
+
+```toml
+env = [
+  "MAE_TESTCONTAINERS=1",
+  "APP_DATABASE__HOST=",
+  "APP_GRAPHDB__HOST="
+]
+```
+
+Before the CI pipeline will pass, fill these in with your GitHub secret references:
+
+```toml
+env = [
+  "MAE_TESTCONTAINERS=1",
+  "APP_DATABASE__HOST=${{ secrets.CI_STAGE_MYSERVICE_POSTGRES_HOST }}",
+  "APP_GRAPHDB__HOST=${{ secrets.CI_STAGE_MYSERVICE_NEO4J_HOST }}"
+]
+```
+
+The CI workflow reads the secret names from this file and injects only those specific secrets (no `toJSON(secrets)` — no mass exposure). A blank value is a hard CI failure with a clear error.
+
+#### Required GitHub Secrets
+
+| Secret | Scope | Maps to |
+|---|---|---|
+| `CI_STAGE_<SERVICE>_POSTGRES_HOST` | **per-repo** | `APP_DATABASE__HOST` → `database.host` |
+| `CI_STAGE_<SERVICE>_NEO4J_HOST` | **per-repo** | `APP_GRAPHDB__HOST` → `graphdb.host` |
+| `CI_STAGE_REDIS_URL` | org-global | `APP_REDIS_URI` → `redis_uri` |
+| `CI_STAGE_RABBITMQ_HOST` | org-global | `RABBITMQ_HOST` |
+
+> **config-rs env var naming:** prefix `APP`, prefix_separator `_`, separator `__`.
+> `APP_DATABASE__HOST` → strips `APP_` → `database__host` → `database.host`.
+> Flat fields (no `__`): `APP_REDIS_URI` → `redis_uri`.
+
+#### Local development
+
+Running `bash scripts/int-test.sh` (no flags) automatically sets `MAE_TESTCONTAINERS=1` via `.ci/ci_env.toml`, spinning up docker containers for all services. No manual env setup needed.
+
+If `.ci/ci_env.toml` has blank entries, the script warns locally (non-blocking) and CI hard-fails.
 
 ## Pre-Push Hook
 

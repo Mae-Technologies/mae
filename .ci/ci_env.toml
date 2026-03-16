@@ -1,11 +1,18 @@
 # CI test runner configuration
 #
-# Supported engines: "miri", "cargo", "nextest", "nothing"
-# Environment variables in `env` are exported before test command runs.
-# `flags` are appended to the selected test command.
+# env entries support two forms:
+#   KEY=VALUE              — exported as-is (local dev + CI)
+#   KEY=${{ secrets.NAME }} — resolved from GitHub secrets in CI only; blank locally (raises if secret missing)
+#
+# Service-specific secrets (set per-repo): use ${{ secrets.YOUR_SECRET_NAME }}
+# Global/org secrets (redis, rabbitmq): add as KEY=VALUE in your workflow env block
 
 coverage_threshold = 0
 
 engine = "nextest"
-env = ["MAE_TESTCONTAINERS=1"]
-flags = ["--no-pager", "--all-features", "--run-ignored", "all", "--no-tests=warn"]
+env = [
+  "MAE_TESTCONTAINERS=1",
+  "APP_DATABASE__HOST=",
+  "APP_GRAPHDB__HOST="
+]
+flags = ["--no-pager", "--features", "integration-testing", "--all-features", "--run-ignored", "all"]
