@@ -1,20 +1,32 @@
-# configuration/base.yaml
 application:
   host: "0.0.0.0"
-  port: 0
-  base_url: "http://127.0.0.1:0"
-  hmac_secret: "test-hmac-secret-for-mae-crate-testing"
+  port: 8080
+
 database:
-  host: "127.0.0.1"
-  port: 5432
+  host: "localhost"
+  port: "5432"
   username: "app"
   password: "secret"
-  database_name: "mae_test"
-  require_ssl: false
-redis_uri: "redis://127.0.0.1:6379"
+  db_name: "service_db"
+
+database_admin:
+  superuser: "postgres"
+  superuser_password: "postgres"
+  superuser_db: "postgres"
+  migrator_user: "db_migrator"
+  migrator_password: "migrator_secret"
+  app_user: "app"
+  app_user_password: "secret"
+  db_name: "service_db"
+
 graphdb:
   host: "localhost"
   port: "7687"
   username: "neo4j"
   password: "testpassword"
-custom: {}
+
+messagebroker:
+  host: "localhost"
+  port: "5672"
+  username: "guest"
+  password: "guest"

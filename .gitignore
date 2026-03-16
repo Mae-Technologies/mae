@@ -56,3 +56,5 @@ docker-container-*
 # -----------------------------
 configuration/local.yaml
 configuration/production.yaml
+configuration/staging.yaml
+configuration/dev.yaml
