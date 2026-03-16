@@ -207,7 +207,7 @@ pub enum Environment {
     Dev,
     Test,
     Staging,
-    Production,
+    Production
 }
 
 impl Environment {
@@ -217,7 +217,7 @@ impl Environment {
             Environment::Dev => "dev",
             Environment::Test => "test",
             Environment::Staging => "staging",
-            Environment::Production => "production",
+            Environment::Production => "production"
         }
     }
 }
