@@ -205,6 +205,7 @@ pub struct ApplicationSettings {
 pub enum Environment {
     Local,
     Production,
+    Staging,
     Test
 }
 
@@ -213,6 +214,7 @@ impl Environment {
         match self {
             Environment::Local => "local",
             Environment::Production => "production",
+            Environment::Staging => "staging",
             Environment::Test => "test"
         }
     }
@@ -225,6 +227,7 @@ impl TryFrom<String> for Environment {
         match s.to_lowercase().as_str() {
             "local" => Ok(Self::Local),
             "production" => Ok(Self::Production),
+            "staging" => Ok(Self::Staging),
             "test" => Ok(Self::Test),
             other => Err(anyhow!("{} is not a supported environment", other))
         }
