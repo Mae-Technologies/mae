@@ -18,7 +18,9 @@ pub fn get_configuration<S: for<'a> serde::Deserialize<'a>>() -> Result<Settings
 
     let settings = config::Config::builder()
         .add_source(config::File::from(configuration_directory.join("base.yaml")))
-        .add_source(config::File::from(configuration_directory.join(environment_filename)).required(false))
+        .add_source(
+            config::File::from(configuration_directory.join(environment_filename)).required(false)
+        )
         .add_source(config::Environment::with_prefix("APP").prefix_separator("_").separator("__"))
         .build()
         .with_context(|| "failed to build configurations")?;
