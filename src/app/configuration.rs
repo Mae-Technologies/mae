@@ -204,18 +204,20 @@ pub struct ApplicationSettings {
 
 pub enum Environment {
     Local,
-    Production,
+    Dev,
+    Test,
     Staging,
-    Test
+    Production,
 }
 
 impl Environment {
     pub fn as_str(&self) -> &'static str {
         match self {
             Environment::Local => "local",
-            Environment::Production => "production",
+            Environment::Dev => "dev",
+            Environment::Test => "test",
             Environment::Staging => "staging",
-            Environment::Test => "test"
+            Environment::Production => "production",
         }
     }
 }
@@ -226,9 +228,10 @@ impl TryFrom<String> for Environment {
     fn try_from(s: String) -> Result<Self, Self::Error> {
         match s.to_lowercase().as_str() {
             "local" => Ok(Self::Local),
-            "production" => Ok(Self::Production),
-            "staging" => Ok(Self::Staging),
+            "dev" => Ok(Self::Dev),
             "test" => Ok(Self::Test),
+            "staging" => Ok(Self::Staging),
+            "production" => Ok(Self::Production),
             other => Err(anyhow!("{} is not a supported environment", other))
         }
     }
