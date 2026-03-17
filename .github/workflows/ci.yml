@@ -1,0 +1,260 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - production
+
+permissions:
+  contents: read
+
+jobs:
+  config:
+    name: 📚 The Red Book of Westmarch
+    runs-on: mae-runner
+    outputs:
+      neo4j_user: ${{ steps.read.outputs.neo4j_user }}
+      neo4j_password: ${{ steps.read.outputs.neo4j_password }}
+      rabbitmq_user: ${{ steps.read.outputs.rabbitmq_user }}
+      rabbitmq_password: ${{ steps.read.outputs.rabbitmq_password }}
+      db_superuser: ${{ steps.read.outputs.db_superuser }}
+      db_superuser_pwd: ${{ steps.read.outputs.db_superuser_pwd }}
+      db_name: ${{ steps.read.outputs.db_name }}
+      db_migrator_user: ${{ steps.read.outputs.db_migrator_user }}
+      db_migrator_pwd: ${{ steps.read.outputs.db_migrator_pwd }}
+      db_app_user: ${{ steps.read.outputs.db_app_user }}
+      db_app_user_pwd: ${{ steps.read.outputs.db_app_user_pwd }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📦 Cache tool binaries
+        id: cache-tools-config
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/bin
+          key: tools-yq-v4.52.4-${{ runner.os }}
+
+      - name: 🔧 Install yq
+        if: steps.cache-tools-config.outputs.cache-hit != 'true'
+        run: |
+          echo "::group::Installing yq"
+          mkdir -p "$HOME/.local/bin"
+          curl -sSfL "https://github.com/mikefarah/yq/releases/download/v4.52.4/yq_linux_amd64" \
+            -o "$HOME/.local/bin/yq" >/dev/null 2>&1
+          chmod +x "$HOME/.local/bin/yq"
+          echo "::endgroup::"
+
+      - name: 🔧 Add tools to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Read config
+        id: read
+        run: |
+          # Merge base.yaml with test.yaml overrides
+          CONFIG=$(yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' \
+            configuration/base.yaml configuration/test.yaml 2>/dev/null \
+            || cat configuration/base.yaml)
+          echo "neo4j_user=$(echo "$CONFIG" | yq '.graphdb.username')" >> $GITHUB_OUTPUT
+          echo "neo4j_password=$(echo "$CONFIG" | yq '.graphdb.password')" >> $GITHUB_OUTPUT
+          echo "rabbitmq_user=$(echo "$CONFIG" | yq '.messagebroker.username')" >> $GITHUB_OUTPUT
+          echo "rabbitmq_password=$(echo "$CONFIG" | yq '.messagebroker.password')" >> $GITHUB_OUTPUT
+          echo "db_superuser=$(echo "$CONFIG" | yq '.database_admin.superuser')" >> $GITHUB_OUTPUT
+          echo "db_superuser_pwd=$(echo "$CONFIG" | yq '.database_admin.superuser_pwd')" >> $GITHUB_OUTPUT
+          echo "db_name=$(echo "$CONFIG" | yq '.database_admin.db_name // .database.database_name')" >> $GITHUB_OUTPUT
+          echo "db_migrator_user=$(echo "$CONFIG" | yq '.database_admin.migrator_user')" >> $GITHUB_OUTPUT
+          echo "db_migrator_pwd=$(echo "$CONFIG" | yq '.database_admin.migrator_pwd')" >> $GITHUB_OUTPUT
+          echo "db_app_user=$(echo "$CONFIG" | yq '.database_admin.app_user')" >> $GITHUB_OUTPUT
+          echo "db_app_user_pwd=$(echo "$CONFIG" | yq '.database_admin.app_user_pwd')" >> $GITHUB_OUTPUT
+
+  smoke_check:
+    name: 🏰 Allies Gather at Rivendell
+    runs-on: mae-runner
+    needs: config
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 🔐 Inject service secrets
+        env:
+          POSTGRES_HOST: ${{ secrets.CI_STAGE_SERVICE_POSTGRES_HOST }}
+          NEO4J_HOST: ${{ secrets.CI_STAGE_SERVICE_NEO4J_HOST }}
+        run: |
+          echo "POSTGRES_HOST=$POSTGRES_HOST" >> "$GITHUB_ENV"
+          echo "NEO4J_HOST=$NEO4J_HOST" >> "$GITHUB_ENV"
+
+      - name: 🔧 Install connection tools
+        run: |
+          echo "::group::Installing connection tools"
+          sudo apt-get update -qq >/dev/null 2>&1
+          sudo apt-get install -y postgresql-client netcat-openbsd >/dev/null 2>&1
+          echo "::endgroup::"
+
+      - name: 🐘 Postgres reachability
+        run: |
+          echo "Checking Postgres at $POSTGRES_HOST:5432"
+          pg_isready -h "$POSTGRES_HOST" -p 5432 -t 10 \
+            || { echo "❌ Postgres unreachable at $POSTGRES_HOST:5432"; exit 1; }
+          echo "✅ Postgres reachable"
+
+      - name: 🔵 Neo4j bolt reachability
+        run: |
+          echo "Checking Neo4j bolt at $NEO4J_HOST:7687"
+          nc -zw 10 "$NEO4J_HOST" 7687 \
+            || { echo "❌ Neo4j bolt unreachable at $NEO4J_HOST:7687"; exit 1; }
+          echo "✅ Neo4j bolt reachable"
+
+  secret_scan:
+    name: 🛡️ Watchers of the Gate
+    runs-on: mae-runner
+    needs: config
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: 📦 Cache tool binaries
+        id: cache-tools-secret-scan
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/bin
+          key: tools-trufflehog-latest-${{ runner.os }}
+
+      - name: 🔧 Install trufflehog
+        if: steps.cache-tools-secret-scan.outputs.cache-hit != 'true'
+        run: |
+          echo "::group::Installing trufflehog"
+          mkdir -p "$HOME/.local/bin"
+          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh \
+            | sh -s -- -b "$HOME/.local/bin" >/dev/null 2>&1
+          echo "::endgroup::"
+
+      - name: 🔧 Add tools to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: 🔐 Secret scan
+        run: trufflehog git file://. --since-commit HEAD~1 --only-verified --fail
+
+  integrity:
+    name: 🏔️ Through the Mines of Moria
+    runs-on: mae-runner
+    needs: config
+    env:
+      CARGO_TERM_QUIET: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 🔧 Install system dependencies
+        run: |
+          echo "::group::Installing system dependencies"
+          sudo apt-get update -qq >/dev/null 2>&1
+          sudo apt-get install -y build-essential pkg-config libssl-dev >/dev/null 2>&1
+          echo "::endgroup::"
+
+      - name: 🦀 Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: 📦 Restore build cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: 🔧 Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: 🔧 Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: 🔧 Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: 🦀 Install nightly toolchain (coverage)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview
+
+      - name: 🎨 Check formatting
+        run: cargo fmt -- --check
+
+      - name: 📊 Coverage (llvm-cov + nextest)
+        run: |
+          THRESHOLD=$(python3 -c "
+          import tomllib, pathlib
+          d = tomllib.loads(pathlib.Path('.ci/ci_env.toml').read_text())
+          print(d.get('coverage_threshold', 45))
+          ")
+          echo "Coverage threshold: ${THRESHOLD}%"
+          cargo +nightly llvm-cov nextest --lib --no-tests=warn --fail-under-lines "$THRESHOLD" 2>&1 | grep -v '^info: cargo-llvm-cov'
+
+      - name: 🔍 Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: 📦 Cargo Deny
+        run: cargo deny check
+
+  integration:
+    name: ⚔️ The Battle of Helm's Deep
+    runs-on: mae-runner
+    needs: [smoke_check, config]
+    env:
+      NEO4J_USER: ${{ needs.config.outputs.neo4j_user }}
+      NEO4J_PASSWORD: ${{ needs.config.outputs.neo4j_password }}
+      RABBITMQ_USER: ${{ needs.config.outputs.rabbitmq_user }}
+      RABBITMQ_PASSWORD: ${{ needs.config.outputs.rabbitmq_password }}
+      POSTGRES_SUPERUSER: ${{ needs.config.outputs.db_superuser }}
+      POSTGRES_SUPERUSER_PWD: ${{ needs.config.outputs.db_superuser_pwd }}
+      APP_DB_NAME: ${{ needs.config.outputs.db_name }}
+      MIGRATOR_USER: ${{ needs.config.outputs.db_migrator_user }}
+      MIGRATOR_PWD: ${{ needs.config.outputs.db_migrator_pwd }}
+      APP_USER: ${{ needs.config.outputs.db_app_user }}
+      APP_USER_PWD: ${{ needs.config.outputs.db_app_user_pwd }}
+      # Service hostnames & URLs come from GitHub Actions secrets
+      # (set at org/repo level — see PR description for required values)
+      # config-rs prefix_separator("_") + separator("__"): strip "APP_" then split on "__"
+      # e.g. APP_DATABASE__HOST → database.host, APP_REDIS_URI → redis_uri (flat field)
+      APP_DATABASE__PORT: "5432"
+      APP_GRAPHDB__PORT: "7687"
+      APP_REDIS_URI: ${{ secrets.CI_REDIS_URL }}
+      RABBITMQ_HOST: ${{ secrets.CI_RABBITMQ_HOST }}
+      RABBITMQ_PORT: "5672"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 🔧 Install system dependencies
+        run: |
+          echo "::group::Installing system dependencies"
+          sudo apt-get update -qq >/dev/null 2>&1
+          sudo apt-get install -y build-essential pkg-config libssl-dev >/dev/null 2>&1
+          echo "::endgroup::"
+
+      - name: 🦀 Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 🔧 Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: 📦 Restore build cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: 🔐 Inject service secrets
+        env:
+          APP_DATABASE__HOST: ${{ secrets.CI_STAGE_SERVICE_POSTGRES_HOST }}
+          APP_GRAPHDB__HOST: ${{ secrets.CI_STAGE_SERVICE_NEO4J_HOST }}
+        run: |
+          echo "APP_DATABASE__HOST=$APP_DATABASE__HOST" >> "$GITHUB_ENV"
+          echo "APP_GRAPHDB__HOST=$APP_GRAPHDB__HOST" >> "$GITHUB_ENV"
+
+      - name: Run integration tests
+        env:
+          APP_ENVIRONMENT: test
+          CONFIRM_IRREVOCABLE_DATABASE_WIPE: "true"
+        run: bash scripts/int-test.sh --ci
