@@ -24,7 +24,46 @@ pub fn get_configuration<S: for<'a> serde::Deserialize<'a>>() -> Result<Settings
         .add_source(config::Environment::with_prefix("APP").prefix_separator("_").separator("__"))
         .build()
         .with_context(|| "failed to build configurations")?;
-    settings.try_deserialize::<Settings<S>>().with_context(|| "failed to deserialize configuration")
+    let settings = settings
+        .try_deserialize::<Settings<S>>()
+        .with_context(|| "failed to deserialize configuration")?;
+
+    if matches!(environment, Environment::Production | Environment::Staging) {
+        validate_production_config(&settings)?;
+    }
+
+    Ok(settings)
+}
+
+/// Known dev-default values that must never appear in production / staging.
+///
+/// Each tuple is `(dotted field path, actual value, forbidden default)`.
+/// The check is case-sensitive and exact-match.
+pub fn validate_production_config<S>(settings: &Settings<S>) -> Result<()> {
+    let checks: Vec<(&str, &str, &str)> = vec![
+        ("graphdb.password", settings.graphdb.password.expose_secret(), "testpassword"),
+        ("graphdb.host", &settings.graphdb.host, "localhost"),
+        ("database.password", settings.database.password.expose_secret(), "secret"),
+        ("database.host", &settings.database.host, "localhost"),
+        ("database.host", &settings.database.host, "0.0.0.0"),
+    ];
+
+    let mut errors: Vec<String> = Vec::new();
+
+    for (field, actual, forbidden) in &checks {
+        if *actual == *forbidden {
+            errors.push(format!(
+                "[production] configuration field `{field}` must be explicitly set \
+                 — fallback defaults are not permitted in production"
+            ));
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow!("Production configuration validation failed:\n{}", errors.join("\n")))
+    }
 }
 
 // DEFAULT CONFIGS

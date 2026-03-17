@@ -156,36 +156,34 @@ Coverage threshold is read from `.ci/ci_env.toml` (`coverage_threshold` key, def
 
 #### Configuring service-specific secrets
 
-Service-specific host secrets are declared in `.ci/ci_env.toml` — **not** hardcoded in the workflow YAML. The template ships with blank placeholders:
+Service-specific host secrets use **standard names** set per-repo by the ansible `k8s-bootstrap` playbook. The CI workflow injects them directly — no declarations needed in `.ci/ci_env.toml`.
+
+`.ci/ci_env.toml` only needs the local dev flags:
 
 ```toml
+coverage_threshold = 45
+engine = "nextest"
 env = [
   "MAE_TESTCONTAINERS=1",
-  "APP_DATABASE__HOST=",
-  "APP_GRAPHDB__HOST="
 ]
+flags = ["--no-pager", "--features", "integration-testing", "--all-features", "--run-ignored", "all"]
 ```
-
-Before the CI pipeline will pass, fill these in with your GitHub secret references:
-
-```toml
-env = [
-  "MAE_TESTCONTAINERS=1",
-  "APP_DATABASE__HOST=${{ secrets.CI_STAGE_MYSERVICE_POSTGRES_HOST }}",
-  "APP_GRAPHDB__HOST=${{ secrets.CI_STAGE_MYSERVICE_NEO4J_HOST }}"
-]
-```
-
-The CI workflow reads the secret names from this file and injects only those specific secrets (no `toJSON(secrets)` — no mass exposure). A blank value is a hard CI failure with a clear error.
 
 #### Required GitHub Secrets
 
-| Secret | Scope | Maps to |
-|---|---|---|
-| `CI_STAGE_<SERVICE>_POSTGRES_HOST` | **per-repo** | `APP_DATABASE__HOST` → `database.host` |
-| `CI_STAGE_<SERVICE>_NEO4J_HOST` | **per-repo** | `APP_GRAPHDB__HOST` → `graphdb.host` |
-| `CI_STAGE_REDIS_URL` | org-global | `APP_REDIS_URI` → `redis_uri` |
-| `CI_STAGE_RABBITMQ_HOST` | org-global | `RABBITMQ_HOST` |
+| Secret | Scope | Set by | Maps to |
+|---|---|---|---|
+| `CI_STAGE_SERVICE_POSTGRES_HOST` | **per-repo** | ansible k8s-bootstrap | `APP_DATABASE__HOST` → `database.host` |
+| `CI_STAGE_SERVICE_NEO4J_HOST` | **per-repo** | ansible k8s-bootstrap | `APP_GRAPHDB__HOST` → `graphdb.host` |
+| `CI_REDIS_URL` | org-global | ansible k8s-bootstrap | `APP_REDIS_URI` → `redis_uri` |
+| `CI_RABBITMQ_HOST` | org-global | ansible k8s-bootstrap | `RABBITMQ_HOST` |
+
+The per-repo secrets are provisioned by running the `ci_staging` tag of the bootstrap playbook:
+
+```bash
+ansible-playbook -i inventories/hosts.ini playbooks/k8s-bootstrap.yml \
+  -e @secrets/k8s-bootstrap.vars.yml --tags ci_staging
+```
 
 > **config-rs env var naming:** prefix `APP`, prefix_separator `_`, separator `__`.
 > `APP_DATABASE__HOST` → strips `APP_` → `database__host` → `database.host`.
@@ -194,8 +192,6 @@ The CI workflow reads the secret names from this file and injects only those spe
 #### Local development
 
 Running `bash scripts/int-test.sh` (no flags) automatically sets `MAE_TESTCONTAINERS=1` via `.ci/ci_env.toml`, spinning up docker containers for all services. No manual env setup needed.
-
-If `.ci/ci_env.toml` has blank entries, the script warns locally (non-blocking) and CI hard-fails.
 
 ## Pre-Push Hook
 

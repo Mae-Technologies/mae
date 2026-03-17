@@ -129,31 +129,7 @@ if [[ "$CI_MODE" == "true" ]]; then
   unset MAE_TESTCONTAINERS
 fi
 
-# Warn local developers if .ci/ci_env.toml has blank service-specific entries.
-# Blank entries mean the service hasn't configured its CI secrets yet.
-# In CI the resolve step hard-fails on blank entries — locally we just warn.
-if [[ "$CI_MODE" == "false" ]]; then
-  BLANK_KEYS="$(python3 - "$CFG_FILE" <<'PY'
-import tomllib, sys
-cfg = tomllib.load(open(sys.argv[1], 'rb'))
-blank = [kv.split('=')[0] for kv in cfg.get('env', [])
-         if '=' in kv and not kv.split('=', 1)[1].strip()]
-print('\n'.join(blank))
-PY
-)"
-  if [[ -n "$BLANK_KEYS" ]]; then
-    echo
-    warn "⚠️  The following entries in .ci/ci_env.toml have blank values:"
-    while IFS= read -r key; do
-      [[ -z "$key" ]] && continue
-      warn "   • $key — update .ci/ci_env.toml to: $key=\${{ secrets.YOUR_SECRET_NAME }}"
-    done <<< "$BLANK_KEYS"
-    warn ""
-    warn "   CI will hard-fail until these are configured."
-    warn "   Locally, docker containers may still provide the services."
-    echo
-  fi
-fi
+
 
 # Build flags array
 ARGS=()
