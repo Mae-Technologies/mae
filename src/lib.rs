@@ -17,6 +17,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod app;
+pub mod health;
 pub mod error_response;
 pub mod middleware;
 pub mod repo;
