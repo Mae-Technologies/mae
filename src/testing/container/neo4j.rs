@@ -15,9 +15,10 @@
 //! to delete all nodes carrying the prefix label.
 
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use testcontainers::{ContainerAsync, runners::AsyncRunner};
+use testcontainers::{ContainerAsync, core::ImageExt as _, runners::AsyncRunner};
 use testcontainers_modules::neo4j::{Neo4j, Neo4jImage};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -155,8 +156,12 @@ async fn ensure_started() -> Result<()> {
 
     let mut guard = neo4j_mutex().lock().await;
     if guard.is_none() {
+        // Neo4j 5 can take 60–90 s to become ready on slower machines.
+        // The testcontainers default startup timeout is 60 s, which is frequently
+        // too short.  We use 120 s to give adequate headroom.
         let container: ContainerAsync<Neo4jImage> = Neo4j::new()
             .with_password("testpassword")
+            .with_startup_timeout(Duration::from_secs(120))
             .start()
             .await
             .context("failed to start Neo4j container")?;
