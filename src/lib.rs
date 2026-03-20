@@ -18,6 +18,7 @@
 
 pub mod app;
 pub mod error_response;
+pub mod health;
 pub mod middleware;
 pub mod repo;
 pub mod request_context;
