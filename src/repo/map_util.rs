@@ -260,12 +260,29 @@ pub fn sql_where<F: ToField>(
     let mut f_idx = 0;
     let whr = w
         .iter()
-        .map(|f| match f {
-            FilterOp::Or(_c, v) | FilterOp::And(_c, v) | FilterOp::Begin(_c, v) => match v {
-                Filter::IsNull => format!("\n\t{}{}", update_batch_ref_table, f,),
-                _ => {
+        .map(|f| {
+            let (kw, field_str) = match f {
+                FilterOp::Begin(c, _) => ("", format!("{c}")),
+                FilterOp::And(c, _) => ("AND ", format!("{c}")),
+                FilterOp::Or(c, _) => ("OR ", format!("{c}"))
+            };
+            let filter_val = match f {
+                FilterOp::Begin(_, v) | FilterOp::And(_, v) | FilterOp::Or(_, v) => v
+            };
+            match filter_val {
+                Filter::IsNull => {
+                    format!("\n\t{}{}{} IS NULL", kw, update_batch_ref_table, field_str)
+                }
+                v => {
                     f_idx += f.bind_len();
-                    format!("\n\t{}{} ${}", update_batch_ref_table, f, f_idx + idx)
+                    format!(
+                        "\n\t{}{}{} {} ${}",
+                        kw,
+                        update_batch_ref_table,
+                        field_str,
+                        v,
+                        f_idx + idx
+                    )
                 }
             }
         })
@@ -275,4 +292,100 @@ pub fn sql_where<F: ToField>(
         return format!("\nWHERE{}", whr);
     }
     whr
+}
+
+#[cfg(all(test, feature = "test-utils"))]
+mod tests {
+    use super::*;
+    use crate::repo::filter::{Filter, FilterOp};
+    use crate::testing::must::must_be_true;
+
+    /// Minimal field enum used only in unit tests so we don't need a real schema.
+    #[derive(Clone, Copy)]
+    enum TestField {
+        Name,
+        Age
+    }
+
+    impl Display for TestField {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                TestField::Name => write!(f, "name"),
+                TestField::Age => write!(f, "age")
+            }
+        }
+    }
+
+    impl ToSqlParts for TestField {
+        fn to_sql_parts(&self) -> AsSqlParts {
+            (vec![format!("{}", self)], None)
+        }
+    }
+
+    /// Regression test for #95: with a table alias, `FilterOp::And` must produce
+    /// `AND alias.field = $N`, not `alias.AND field = $N`.
+    #[test]
+    fn sql_where_alias_precedes_keyword_not_field() {
+        let filters = vec![
+            FilterOp::Begin(TestField::Name, Filter::Equals(1)),
+            FilterOp::And(TestField::Age, Filter::Equals(30)),
+        ];
+
+        let sql = sql_where(&filters, 0, Some("_x_".into()));
+
+        must_be_true(sql.contains("AND _x_.age"));
+        must_be_true(!sql.contains("_x_.AND"));
+    }
+
+    /// Same regression check for `FilterOp::Or`.
+    #[test]
+    fn sql_where_or_alias_precedes_keyword_not_field() {
+        let filters = vec![
+            FilterOp::Begin(TestField::Name, Filter::Equals(1)),
+            FilterOp::Or(TestField::Age, Filter::Equals(30)),
+        ];
+
+        let sql = sql_where(&filters, 0, Some("_x_".into()));
+
+        must_be_true(sql.contains("OR _x_.age"));
+        must_be_true(!sql.contains("_x_.OR"));
+    }
+
+    /// `FilterOp::Begin` (no keyword) should still get the alias applied to the field.
+    #[test]
+    fn sql_where_begin_with_alias() {
+        let filters = vec![FilterOp::Begin(TestField::Name, Filter::Equals(1))];
+
+        let sql = sql_where(&filters, 0, Some("_x_".into()));
+
+        must_be_true(sql.contains("_x_.name"));
+    }
+
+    /// `Filter::IsNull` with an alias and `FilterOp::And` must produce
+    /// `AND alias.field IS NULL`, not `alias.AND field IS NULL`.
+    #[test]
+    fn sql_where_is_null_with_alias_and_keyword() {
+        let filters = vec![
+            FilterOp::Begin(TestField::Name, Filter::Equals(1)),
+            FilterOp::And(TestField::Age, Filter::IsNull),
+        ];
+
+        let sql = sql_where(&filters, 0, Some("_x_".into()));
+
+        must_be_true(sql.contains("AND _x_.age IS NULL"));
+        must_be_true(!sql.contains("_x_.AND"));
+    }
+
+    /// Without an alias the output should be unchanged: keyword first, then field.
+    #[test]
+    fn sql_where_no_alias_and_keyword() {
+        let filters = vec![
+            FilterOp::Begin(TestField::Name, Filter::Equals(1)),
+            FilterOp::And(TestField::Age, Filter::Equals(30)),
+        ];
+
+        let sql = sql_where(&filters, 0, None);
+
+        must_be_true(sql.contains("AND age"));
+    }
 }
