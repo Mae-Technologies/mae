@@ -2443,7 +2443,8 @@ dependencies = [
 [[package]]
 name = "mae_macros"
 version = "0.1.2"
-source = "git+https://github.com/Mae-Technologies/mae_macros.git?branch=feature%2F12-auto-health-routes#85f6883e1db3635eb0cd9d99205e3fd725fe22ca"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "155a7d73b4c4cb87ae2efb7bcb761a07a9ce0996b44e697c40e8b9333c32aa4b"
 dependencies = [
  "chrono",
  "neo4rs",
