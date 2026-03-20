@@ -298,6 +298,7 @@ pub fn sql_where<F: ToField>(
 mod tests {
     use super::*;
     use crate::repo::filter::{Filter, FilterOp};
+    use crate::testing::must::must_be_true;
 
     /// Minimal field enum used only in unit tests so we don't need a real schema.
     #[derive(Clone, Copy)]
@@ -332,14 +333,8 @@ mod tests {
 
         let sql = sql_where(&filters, 0, Some("_x_".into()));
 
-        assert!(
-            sql.contains("AND _x_.age"),
-            "expected 'AND _x_.age' but got: {sql}"
-        );
-        assert!(
-            !sql.contains("_x_.AND"),
-            "alias must not be prepended to keyword; got: {sql}"
-        );
+        must_be_true(sql.contains("AND _x_.age"));
+        must_be_true(!sql.contains("_x_.AND"));
     }
 
     /// Same regression check for `FilterOp::Or`.
@@ -352,14 +347,8 @@ mod tests {
 
         let sql = sql_where(&filters, 0, Some("_x_".into()));
 
-        assert!(
-            sql.contains("OR _x_.age"),
-            "expected 'OR _x_.age' but got: {sql}"
-        );
-        assert!(
-            !sql.contains("_x_.OR"),
-            "alias must not be prepended to keyword; got: {sql}"
-        );
+        must_be_true(sql.contains("OR _x_.age"));
+        must_be_true(!sql.contains("_x_.OR"));
     }
 
     /// `FilterOp::Begin` (no keyword) should still get the alias applied to the field.
@@ -369,10 +358,7 @@ mod tests {
 
         let sql = sql_where(&filters, 0, Some("_x_".into()));
 
-        assert!(
-            sql.contains("_x_.name"),
-            "expected '_x_.name' but got: {sql}"
-        );
+        must_be_true(sql.contains("_x_.name"));
     }
 
     /// `Filter::IsNull` with an alias and `FilterOp::And` must produce
@@ -386,14 +372,8 @@ mod tests {
 
         let sql = sql_where(&filters, 0, Some("_x_".into()));
 
-        assert!(
-            sql.contains("AND _x_.age IS NULL"),
-            "expected 'AND _x_.age IS NULL' but got: {sql}"
-        );
-        assert!(
-            !sql.contains("_x_.AND"),
-            "alias must not be prepended to keyword; got: {sql}"
-        );
+        must_be_true(sql.contains("AND _x_.age IS NULL"));
+        must_be_true(!sql.contains("_x_.AND"));
     }
 
     /// Without an alias the output should be unchanged: keyword first, then field.
@@ -406,9 +386,6 @@ mod tests {
 
         let sql = sql_where(&filters, 0, None);
 
-        assert!(
-            sql.contains("AND age"),
-            "expected 'AND age' but got: {sql}"
-        );
+        must_be_true(sql.contains("AND age"));
     }
 }
