@@ -260,12 +260,29 @@ pub fn sql_where<F: ToField>(
     let mut f_idx = 0;
     let whr = w
         .iter()
-        .map(|f| match f {
-            FilterOp::Or(_c, v) | FilterOp::And(_c, v) | FilterOp::Begin(_c, v) => match v {
-                Filter::IsNull => format!("\n\t{}{}", update_batch_ref_table, f,),
-                _ => {
+        .map(|f| {
+            let (kw, field_str) = match f {
+                FilterOp::Begin(c, _) => ("", format!("{c}")),
+                FilterOp::And(c, _) => ("AND ", format!("{c}")),
+                FilterOp::Or(c, _) => ("OR ", format!("{c}"))
+            };
+            let filter_val = match f {
+                FilterOp::Begin(_, v) | FilterOp::And(_, v) | FilterOp::Or(_, v) => v
+            };
+            match filter_val {
+                Filter::IsNull => {
+                    format!("\n\t{}{}{} IS NULL", kw, update_batch_ref_table, field_str)
+                }
+                v => {
                     f_idx += f.bind_len();
-                    format!("\n\t{}{} ${}", update_batch_ref_table, f, f_idx + idx)
+                    format!(
+                        "\n\t{}{}{} {} ${}",
+                        kw,
+                        update_batch_ref_table,
+                        field_str,
+                        v,
+                        f_idx + idx
+                    )
                 }
             }
         })
