@@ -304,14 +304,14 @@ mod tests {
     #[derive(Clone, Copy)]
     enum TestField {
         Name,
-        Age,
+        Age
     }
 
     impl Display for TestField {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
                 TestField::Name => write!(f, "name"),
-                TestField::Age => write!(f, "age"),
+                TestField::Age => write!(f, "age")
             }
         }
     }
