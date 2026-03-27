@@ -35,6 +35,7 @@ test-utils = [
     "dep:url",
     "dep:shellexpand",
     "dep:reqwest",
+    "sqlx/migrate",
 ]
 
 [profile.test]
