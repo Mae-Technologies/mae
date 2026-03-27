@@ -53,5 +53,6 @@ pub fn session_middleware(
     )
     .cookie_http_only(false)
     .cookie_secure(false)
+    .cookie_same_site(actix_web::cookie::SameSite::Lax)
     .build()
 }

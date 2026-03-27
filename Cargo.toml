@@ -75,6 +75,7 @@ dotenvy = { version = "0.15.7", optional = true }
 url = { version = "2.5.8", optional = true }
 shellexpand = { version = "3.1.1", optional = true }
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "rustls-tls"] }
+actix-cors = "0.7.1"
 
 [dev-dependencies]
 neo4rs = "0.8"

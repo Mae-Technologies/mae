@@ -34,6 +34,7 @@ mod run;
 pub use run::*;
 
 pub mod prelude {
+
     pub use crate::app::build::{App, ApplicationBaseUrl, HmacSecret, Run};
     pub use crate::app::run::run;
     /// Both session helpers are re-exported here so microservice `main.rs` files have a
@@ -41,6 +42,7 @@ pub mod prelude {
     pub use crate::middleware::{get_service_session, get_session};
     pub use mae_macros::*;
 
+    pub use actix_cors::Cors;
     pub use actix_web::dev::Server;
     pub use actix_web::middleware::from_fn;
     pub use actix_web::{App as ActixWebApp, HttpServer, web};

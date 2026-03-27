@@ -240,7 +240,9 @@ pub struct ApplicationSettings {
     #[serde(deserialize_with = "deserialize_number_from_string")]
     pub port: u16,
     pub base_url: String,
-    pub hmac_secret: SecretString
+    pub hmac_secret: SecretString,
+    pub cors_allowed_origin: String,
+    pub cors_key: String
 }
 
 pub enum Environment {
