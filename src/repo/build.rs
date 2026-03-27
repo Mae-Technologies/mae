@@ -28,7 +28,7 @@ use num::Zero;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use sqlx::{Arguments, Executor, Postgres};
+use sqlx::Arguments;
 
 use crate::repo::filter::Filter;
 use crate::request_context::ContextAccessor;
@@ -355,45 +355,42 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> {
 /// Async execution layer for a built query.
 ///
 /// Implemented automatically for any [`Builder`] that also implements [`ToSql`].
-/// The `fetch_all` method is the primary entry point for most callers; `execute` is
-/// for fire-and-forget mutations that don't need returned rows.
+/// The context (`ctx`) is stored in the builder at construction time via [`Interface`]
+/// methods, so all `Execute` methods resolve the DB pool internally — callers do
+/// **not** need to pass the pool or context at the execution step.
+///
+/// ```rust,ignore
+/// // New — ctx carried through from the Interface call:
+/// Account::select(ctx, vec![Field::All]).fetch_all().await?;
+///
+/// // Old — caller had to pass the executor explicitly:
+/// Account::select(vec![Field::All]).fetch_all(ctx.db_pool()).await?;
+/// ```
 pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch>:
     ToSql<I, U, F, P> + ContextAccessor
 {
     /// Execute the statement without returning rows (e.g. a side-effect-only mutation).
-    fn execute(&self, _ctx: &C) -> impl std::future::Future<Output = anyhow::Result<()>> + Send
-    where
-        Self: Sync
-    {
-        async { todo!() }
-    }
-    fn fetch_optional(
-        &self,
-        _ctx: &C
-    ) -> impl std::future::Future<Output = anyhow::Result<Option<A>>> + Send
-    where
-        Self: Sync
-    {
-        async { todo!() }
-    }
-    /// Execute and return exactly one row, erroring if zero or more than one row is returned.
-    fn fetch_one(&self, _ctx: &C) -> impl std::future::Future<Output = anyhow::Result<A>> + Send
-    where
-        Self: Sync
-    {
-        async { todo!() }
-    }
-    /// Execute and return all matching rows.
     ///
-    /// Runs [`authenticate_request`](Self::authenticate_request) first — this guards against
-    /// Update/Patch without filters and SELECT with the wrong field count.
+    /// Uses the DB pool stored in the builder's context.
+    fn execute(&self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send
+    where
+        Self: Sync + Send
+    {
+        async move {
+            self.authenticate_request()?;
+            let sql = self.to_sql()?;
+            let req = sqlx::query_with::<sqlx::Postgres, _>(&sql, self.args(self.session_user()));
+            req.execute(self.db_pool())
+                .await
+                .map(|_| ())
+                .map_err(|e| anyhow::anyhow!("Unable to execute: {}", e))
+        }
+    }
+
+    /// Execute and return at most one row, or `None` if no row matched.
     ///
-    /// Pass a `&mut Transaction` to participate in the caller's transaction, or the pool
-    /// directly for auto-commit behaviour.
-    fn fetch_all<'c>(
-        &self,
-        exec: impl Executor<'c, Database = Postgres>
-    ) -> impl std::future::Future<Output = anyhow::Result<Vec<A>>> + Send
+    /// Uses the DB pool stored in the builder's context.
+    fn fetch_optional(&self) -> impl std::future::Future<Output = anyhow::Result<Option<A>>> + Send
     where
         Self: Sync + Send
     {
@@ -404,11 +401,53 @@ pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToF
                 &sql,
                 self.args(self.session_user())
             );
-            let res: anyhow::Result<Vec<A>> = req
-                .fetch_all(exec)
+            req.fetch_optional(self.db_pool())
                 .await
-                .map_err(|e| anyhow::anyhow!("Unable to fetch all: {}", e));
-            res
+                .map_err(|e| anyhow::anyhow!("Unable to fetch optional: {}", e))
+        }
+    }
+
+    /// Execute and return exactly one row, erroring if zero or more than one row is returned.
+    ///
+    /// Uses the DB pool stored in the builder's context.
+    fn fetch_one(&self) -> impl std::future::Future<Output = anyhow::Result<A>> + Send
+    where
+        Self: Sync + Send
+    {
+        async move {
+            self.authenticate_request()?;
+            let sql = self.to_sql()?;
+            let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments>(
+                &sql,
+                self.args(self.session_user())
+            );
+            req.fetch_one(self.db_pool())
+                .await
+                .map_err(|e| anyhow::anyhow!("Unable to fetch one: {}", e))
+        }
+    }
+
+    /// Execute and return all matching rows.
+    ///
+    /// Runs [`authenticate_request`](Self::authenticate_request) first — this guards against
+    /// Update/Patch without filters and SELECT with the wrong field count.
+    ///
+    /// Uses the DB pool stored in the builder's context (set when calling [`Interface`]
+    /// methods such as [`Interface::select`]).
+    fn fetch_all(&self) -> impl std::future::Future<Output = anyhow::Result<Vec<A>>> + Send
+    where
+        Self: Sync + Send
+    {
+        async move {
+            self.authenticate_request()?;
+            let sql = self.to_sql()?;
+            let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments>(
+                &sql,
+                self.args(self.session_user())
+            );
+            req.fetch_all(self.db_pool())
+                .await
+                .map_err(|e| anyhow::anyhow!("Unable to fetch all: {}", e))
         }
     }
     /// Validate the request before hitting the DB.
