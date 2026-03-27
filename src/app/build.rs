@@ -15,6 +15,7 @@ pub trait Run: App {
         async { self.server().await }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn run<Context: Clone + Send + 'static>(
         listener: TcpListener,
         db_pool: PgPool,
