@@ -38,7 +38,8 @@ fn make_settings(
             host: "0.0.0.0".to_string(),
             port: 8080,
             base_url: "http://placeholder:8080".to_string(),
-            hmac_secret: SecretString::from("hmac_test".to_string())
+            hmac_secret: SecretString::from("hmac_test".to_string()),
+            cors_allowed_origin: "localhost".into()
         },
         redis_uri: SecretString::from("redis://127.0.0.1:6379".to_string()),
         custom: (),

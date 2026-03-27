@@ -60,11 +60,11 @@ pub async fn pg_singleton() -> &'static Mutex<Option<Inner>> {
 
             let image = GenericImage::new("ghcr.io/mae-technologies/postgres-mae", "latest")
                 .with_exposed_port(5432.tcp())
-                .with_wait_for(WaitFor::message_on_stdout("pgTAP tests passed"));
+                .with_wait_for(WaitFor::message_on_stdout("Premigration script finished"));
 
             let container: ContainerAsync<GenericImage> = image
                 .with_env_var("APP_DB_NAME", conf.app_db_name.as_str())
-                .with_env_var("APP_ENV", "test")
+                .with_env_var("APP_ENV", "dev")
                 .with_env_var("CONFIRM_IRREVOCABLE_DATABASE_WIPE", "true")
                 .with_env_var("SUPERUSER", conf.superuser.as_str())
                 .with_env_var("SUPERUSER_PWD", conf.superuser_pwd.as_str())
