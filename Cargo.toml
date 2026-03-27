@@ -1,6 +1,6 @@
 [package]
 name = "mae"
-version = "0.3.9"
+version = "0.3.10"
 edition = "2024"
 license = "MIT"
 description = "Opinionated async Rust framework for building Mae-Technologies micro-services — app scaffolding, repo layer, middleware, and test utilities."
