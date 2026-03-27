@@ -27,7 +27,7 @@ pub mod app;
 ///   [`RedisSessionStore`] ready to be passed to [`session_middleware`].
 /// - [`session_middleware`] — builds the [`SessionMiddleware`] that must be registered
 ///   with every Actix-Web app that needs persistent user sessions.
-pub use app::{redis_session, session_middleware};
+pub use app::{cors_middleware, redis_session, session_middleware};
 pub mod build;
 pub mod configuration;
 mod run;

@@ -1,3 +1,4 @@
+use actix_cors::Cors;
 use actix_session::SessionMiddleware;
 use actix_session::config::{PersistentSession, TtlExtensionPolicy};
 use actix_session::storage::RedisSessionStore;
@@ -55,4 +56,12 @@ pub fn session_middleware(
     .cookie_secure(false)
     .cookie_same_site(actix_web::cookie::SameSite::Lax)
     .build()
+}
+
+pub fn cors_middleware(allowed_origin: String) -> Cors {
+    Cors::default()
+        .allowed_origin(&allowed_origin)
+        .allow_any_method()
+        .allow_any_header()
+        .supports_credentials()
 }
