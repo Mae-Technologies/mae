@@ -2458,9 +2458,9 @@ dependencies = [
 
 [[package]]
 name = "mae_macros"
-version = "0.1.6"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7874f5094412f0150872a3553943b4569f899b8697e16ff52c76765392695f5"
+checksum = "ab7a92ce119dd02a660ee4636e1beda201fba1ed51c2a63ec859440c800817bf"
 dependencies = [
  "chrono",
  "neo4rs",
