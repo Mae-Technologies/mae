@@ -241,8 +241,7 @@ pub struct ApplicationSettings {
     pub port: u16,
     pub base_url: String,
     pub hmac_secret: SecretString,
-    pub cors_allowed_origin: String,
-    pub cors_key: String
+    pub cors_allowed_origin: String
 }
 
 pub enum Environment {

@@ -23,8 +23,7 @@ pub trait Run: App {
         hmac_secret: SecretString,
         redis_uri: SecretString,
         custom_context: Context,
-        cors_allowed_origin: String,
-        cors_key: String
+        cors_allowed_origin: String
     ) -> impl std::future::Future<Output = Result<Server, anyhow::Error>> + Send;
 }
 
@@ -63,8 +62,7 @@ pub trait App {
                 config.application.hmac_secret,
                 config.redis_uri,
                 context,
-                config.application.cors_allowed_origin,
-                config.application.cors_key
+                config.application.cors_allowed_origin
             )
             .await?;
 
