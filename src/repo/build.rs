@@ -227,6 +227,9 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
     fn filters(&self) -> &Vec<FilterOp<F>> {
         &self.filters
     }
+    fn returning_fields(&self) -> Option<&Vec<F>> {
+        self.returning.as_ref()
+    }
 }
 
 impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch>
@@ -234,6 +237,21 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
 where
     Self: ToSql<I, U, F, P>
 {
+}
+
+/// Build the RETURNING clause for a SQL statement.
+///
+/// Returns `RETURNING *` when no explicit field list is provided, or
+/// `RETURNING col1, col2, …` when the caller has specified fields via
+/// [`Builder::returning`].
+fn build_returning_clause<F: ToField>(fields: Option<&Vec<F>>) -> String {
+    match fields {
+        None => "RETURNING *".to_string(),
+        Some(cols) => {
+            let col_list = cols.iter().map(|f| f.to_string()).collect::<Vec<_>>().join(", ");
+            format!("RETURNING {col_list}")
+        }
+    }
 }
 
 /// Renders the accumulated builder state into a SQL string and bound arguments.
@@ -244,6 +262,13 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> {
     fn statement(&self) -> &SqlStatement<I, U, F, P>;
     fn filters(&self) -> &Vec<FilterOp<F>>;
     fn schema(&self) -> &String;
+    /// Returns the optional explicit RETURNING field list set via [`Builder::returning`].
+    ///
+    /// When `None`, the generated SQL uses `RETURNING *`. When `Some`, only the listed
+    /// columns are returned.
+    fn returning_fields(&self) -> Option<&Vec<F>> {
+        None
+    }
     fn to_sql(&self) -> Result<String> {
         Ok(match &self.statement() {
             SqlStatement::Select(field_blocks) => {
@@ -269,15 +294,23 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> {
                 bind_idx.push(format!("${}", last_idx + 1));
                 let fields_str = fields.join(",\n\t ");
                 let bind_idx_str = bind_idx.join(", ");
+                let returning_clause = build_returning_clause(self.returning_fields());
                 format!(
-                    "INSERT INTO {}\n\t(\n\t {}\n\t)\n\tVALUES ({})\nRETURNING *;",
+                    "INSERT INTO {}\n\t(\n\t {}\n\t)\n\tVALUES ({})\n{};",
                     self.schema(),
                     fields_str,
                     bind_idx_str,
+                    returning_clause,
                 )
             }
             SqlStatement::InsertMany(_) => {
-                unimplemented!();
+                // TODO(#23): bulk-insert support is not yet implemented.
+                // Generating multi-row VALUES clauses requires iterating over all rows,
+                // computing positional bind indices across them, and handling the
+                // RETURNING clause for each. Tracked in issue #23.
+                return Err(anyhow!(
+                    "InsertMany is not yet implemented — use insert_one in a loop"
+                ));
             }
             // SqlStatement::Update: full-row update — every column in UpdateRow is written.
             // Uses a VALUES CTE (_z_) to bind all fields as positional params safely.
@@ -300,8 +333,9 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> {
                     .join(", ");
                 let v = bind_idx.join(", ");
                 let schema = self.schema();
+                let returning_clause = build_returning_clause(self.returning_fields());
                 format!(
-                    "UPDATE {schema} _x_\n\tSET {f_f}\n\tFROM\n\t\t(VALUES ({v}))\n\tAS _z_ (\n\t\t {f}\n\t\t){where_str}\nRETURNING *;"
+                    "UPDATE {schema} _x_\n\tSET {f_f}\n\tFROM\n\t\t(VALUES ({v}))\n\tAS _z_ (\n\t\t {f}\n\t\t){where_str}\n{returning_clause};"
                 )
             }
             // SqlStatement::Patch: PARTIAL update — only the PatchField variants supplied
@@ -328,8 +362,9 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> {
                     .join(", ");
                 let v = bind_idx.join(", ");
                 let schema = self.schema();
+                let returning_clause = build_returning_clause(self.returning_fields());
                 format!(
-                    "UPDATE {schema} _x_\n\tSET {f_f}\n\tFROM\n\t\t(VALUES ({v}))\n\tAS _z_ (\n\t\t {f}\n\t\t){where_str}\nRETURNING *;"
+                    "UPDATE {schema} _x_\n\tSET {f_f}\n\tFROM\n\t\t(VALUES ({v}))\n\tAS _z_ (\n\t\t {f}\n\t\t){where_str}\n{returning_clause};"
                 )
             }
         })
@@ -365,7 +400,15 @@ pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToF
     where
         Self: Sync
     {
-        async { todo!() }
+        async move {
+            self.authenticate_request()?;
+            let sql = self.to_sql()?;
+            let req = sqlx::query_with(&sql, self.args(self.session_user()));
+            req.execute(self.db_pool())
+                .await
+                .map(|_| ())
+                .map_err(|e| anyhow::anyhow!("Unable to execute: {}", e))
+        }
     }
     fn fetch_optional(
         &self,
@@ -374,14 +417,34 @@ pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToF
     where
         Self: Sync
     {
-        async { todo!() }
+        async move {
+            self.authenticate_request()?;
+            let sql = self.to_sql()?;
+            let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments>(
+                &sql,
+                self.args(self.session_user())
+            );
+            req.fetch_optional(self.db_pool())
+                .await
+                .map_err(|e| anyhow::anyhow!("Unable to fetch optional: {}", e))
+        }
     }
     /// Execute and return exactly one row, erroring if zero or more than one row is returned.
     fn fetch_one(&self, _ctx: &C) -> impl std::future::Future<Output = anyhow::Result<A>> + Send
     where
         Self: Sync
     {
-        async { todo!() }
+        async move {
+            self.authenticate_request()?;
+            let sql = self.to_sql()?;
+            let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments>(
+                &sql,
+                self.args(self.session_user())
+            );
+            req.fetch_one(self.db_pool())
+                .await
+                .map_err(|e| anyhow::anyhow!("Unable to fetch one: {}", e))
+        }
     }
     /// Execute and return all matching rows.
     ///
@@ -418,6 +481,10 @@ pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToF
     /// - `Select`: requires exactly one field-block when using `fetch_all`; use
     ///   `fetch_all_raw` for multi-column projections.
     fn authenticate_request(&self) -> Result<()> {
+        // TODO(#23): downstream uniqueness checks — before executing INSERT/UPDATE,
+        // verify that the operation would not violate unique constraints by querying
+        // for conflicting rows. This requires knowing which fields carry uniqueness
+        // constraints (schema-level metadata not yet surfaced here). Tracked in #23.
         match self.statement() {
             SqlStatement::Update(_) | SqlStatement::Patch(_) => {
                 if self.filters().is_empty() {
@@ -506,5 +573,206 @@ where
         write!(f, "\n{}", "*".repeat(18))?;
         write!(f, "\n{}\n", "*".repeat(18))?;
         std::fmt::Result::Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::map_util::{BindArgs, ToSqlParts};
+    use super::*;
+
+    // ── Test helpers ────────────────────────────────────────────────────
+
+    /// Minimal [`ToField`] implementation for unit-testing SQL generation helpers
+    /// without pulling in the full `#[schema]` macro infrastructure.
+    #[derive(Debug, Clone)]
+    enum TestField {
+        Id,
+        Name,
+        #[allow(dead_code)]
+        All
+    }
+
+    impl std::fmt::Display for TestField {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                TestField::Id => write!(f, "id"),
+                TestField::Name => write!(f, "name"),
+                TestField::All => write!(f, "*")
+            }
+        }
+    }
+
+    impl ToSqlParts for TestField {
+        fn to_sql_parts(&self) -> super::super::map_util::AsSqlParts {
+            match self {
+                TestField::All => (vec!["*".to_string()], None),
+                other => (vec![other.to_string()], None)
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct TestInsertRow;
+
+    impl std::fmt::Display for TestInsertRow {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "id=$1, name=$2")
+        }
+    }
+
+    impl ToSqlParts for TestInsertRow {
+        fn to_sql_parts(&self) -> super::super::map_util::AsSqlParts {
+            (
+                vec!["id".to_string(), "name".to_string()],
+                Some(vec!["$1".to_string(), "$2".to_string()])
+            )
+        }
+    }
+
+    impl BindArgs for TestInsertRow {
+        fn bind(&self, _args: &mut sqlx::postgres::PgArguments) {}
+        fn bind_len(&self) -> usize {
+            2
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct TestUpdateRow;
+
+    impl std::fmt::Display for TestUpdateRow {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "")
+        }
+    }
+
+    impl ToSqlParts for TestUpdateRow {
+        fn to_sql_parts(&self) -> super::super::map_util::AsSqlParts {
+            (vec![], None)
+        }
+    }
+
+    impl BindArgs for TestUpdateRow {
+        fn bind(&self, _args: &mut sqlx::postgres::PgArguments) {}
+        fn bind_len(&self) -> usize {
+            0
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct TestPatch;
+
+    impl std::fmt::Display for TestPatch {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "")
+        }
+    }
+
+    impl ToSqlParts for TestPatch {
+        fn to_sql_parts(&self) -> super::super::map_util::AsSqlParts {
+            (vec![], None)
+        }
+    }
+
+    impl BindArgs for TestPatch {
+        fn bind(&self, _args: &mut sqlx::postgres::PgArguments) {}
+        fn bind_len(&self) -> usize {
+            0
+        }
+    }
+
+    /// Minimal struct implementing ToSql to test SQL generation without a full Builder.
+    struct FakeToSql {
+        statement: SqlStatement<TestInsertRow, TestUpdateRow, TestField, TestPatch>,
+        filters: Vec<FilterOp<TestField>>,
+        schema: String,
+        returning: Option<Vec<TestField>>
+    }
+
+    impl ToSql<TestInsertRow, TestUpdateRow, TestField, TestPatch> for FakeToSql {
+        fn statement(&self) -> &SqlStatement<TestInsertRow, TestUpdateRow, TestField, TestPatch> {
+            &self.statement
+        }
+        fn filters(&self) -> &Vec<FilterOp<TestField>> {
+            &self.filters
+        }
+        fn schema(&self) -> &String {
+            &self.schema
+        }
+        fn returning_fields(&self) -> Option<&Vec<TestField>> {
+            self.returning.as_ref()
+        }
+    }
+
+    // ── build_returning_clause ──────────────────────────────────────────
+
+    #[test]
+    fn returning_clause_defaults_to_star() {
+        let clause = build_returning_clause::<TestField>(None);
+        assert_eq!(clause, "RETURNING *");
+    }
+
+    #[test]
+    fn returning_clause_with_single_field() {
+        let fields = vec![TestField::Id];
+        let clause = build_returning_clause(Some(&fields));
+        assert_eq!(clause, "RETURNING id");
+    }
+
+    #[test]
+    fn returning_clause_with_multiple_fields() {
+        let fields = vec![TestField::Id, TestField::Name];
+        let clause = build_returning_clause(Some(&fields));
+        assert_eq!(clause, "RETURNING id, name");
+    }
+
+    #[test]
+    fn returning_clause_with_empty_fields() {
+        let fields: Vec<TestField> = vec![];
+        let clause = build_returning_clause(Some(&fields));
+        assert_eq!(clause, "RETURNING ");
+    }
+
+    // ── to_sql: InsertOne ──────────────────────────────────────────────
+
+    #[test]
+    fn insert_one_generates_returning_star_by_default() {
+        let fake = FakeToSql {
+            statement: SqlStatement::InsertOne(TestInsertRow),
+            filters: vec![],
+            schema: "test_table".to_string(),
+            returning: None
+        };
+        let sql = fake.to_sql().unwrap();
+        assert!(sql.contains("RETURNING *"), "expected RETURNING * in: {sql}");
+    }
+
+    #[test]
+    fn insert_one_uses_explicit_returning_fields() {
+        let fake = FakeToSql {
+            statement: SqlStatement::InsertOne(TestInsertRow),
+            filters: vec![],
+            schema: "test_table".to_string(),
+            returning: Some(vec![TestField::Id, TestField::Name])
+        };
+        let sql = fake.to_sql().unwrap();
+        assert!(sql.contains("RETURNING id, name"), "expected RETURNING id, name in: {sql}");
+        assert!(!sql.contains("RETURNING *"), "should not contain RETURNING * in: {sql}");
+    }
+
+    // ── to_sql: InsertMany returns Err ─────────────────────────────────
+
+    #[test]
+    fn insert_many_returns_err_instead_of_panic() {
+        let fake = FakeToSql {
+            statement: SqlStatement::InsertMany(vec![TestInsertRow]),
+            filters: vec![],
+            schema: "test_table".to_string(),
+            returning: None
+        };
+        let result = fake.to_sql();
+        assert!(result.is_err(), "InsertMany should return Err, not panic");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("InsertMany is not yet implemented"), "got: {err_msg}");
     }
 }
