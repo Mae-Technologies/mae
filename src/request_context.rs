@@ -20,14 +20,20 @@ impl<T: Clone> RequestContext<T> {
     }
 }
 
-// TODO: ContextAccessor may not be required
 pub trait ContextAccessor {
+    /// The service-specific custom context type stored in [`RequestContext`].
+    type Custom: Clone;
+
     fn db_pool(&self) -> &PgPool;
     fn session(&self) -> &Session;
     fn session_user(&self) -> &i32;
+    /// Returns a reference to the service-specific custom context.
+    fn custom(&self) -> &Self::Custom;
 }
 
 impl<T: Clone> ContextAccessor for RequestContext<T> {
+    type Custom = T;
+
     fn db_pool(&self) -> &PgPool {
         &self.db_pool
     }
@@ -36,5 +42,8 @@ impl<T: Clone> ContextAccessor for RequestContext<T> {
     }
     fn session_user(&self) -> &i32 {
         &self.session.user_id
+    }
+    fn custom(&self) -> &Self::Custom {
+        &self.custom
     }
 }
