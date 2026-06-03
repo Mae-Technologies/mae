@@ -42,12 +42,11 @@ test-utils = [
 panic = "unwind"
 
 [dependencies]
-# mae_macros = { path = "../mae_macros"}
-mae_macros = { version = "0.1.7"}
+mae_macros = { path = "../mae_macros"}
+# mae_macros = { version = "0.1.7"}
 neo4rs = "0.8"
 chrono = { version = "0.4.43", features = ["serde"] }
 serde_json = "1.0.149"
-sqlx = { version = "0.8.6", default-features = false, features = ["chrono", "macros", "postgres", "runtime-async-std"] }
 serde = { version = "1.0.228", features = ["derive"] }
 num = "0.4.3"
 anyhow = "1.0.100"
@@ -79,12 +78,17 @@ shellexpand = { version = "3.1.1", optional = true }
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "rustls-tls"] }
 actix-cors = "0.7.1"
 
+[dependencies.sqlx]
+version = "0.9.*"
+default-features = false
+features = ["runtime-tokio", "tls-native-tls", "macros", "postgres", "chrono"]
+
 [dev-dependencies]
 neo4rs = "0.8"
 once_cell = "1"
 uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "macros", "migrate"] }
+sqlx = { version = "0.9.*", features = ["runtime-tokio", "postgres", "macros", "migrate"] }
 testcontainers = "0.26"
 testcontainers-modules = { version = "0.14", features = ["postgres"] }
 pretty_assertions = "1.4.1"

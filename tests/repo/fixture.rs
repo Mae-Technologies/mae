@@ -15,7 +15,6 @@
 //! is not tenant-scoped in tests. Production structs override this to enforce
 //! `sys_client` filtering.
 
-use crate::common::context::Ctx;
 use mae::repo::default::DomainStatus;
 use mae::repo::filter::{Filter, FilterOp};
 use mae::repo::implement::{KeyAuths, ToField};
@@ -28,7 +27,7 @@ pub use sqlx::types::JsonValue as SqlxJson;
 /// Only `value` and `string_value` are declared as user-defined fields; all other
 /// columns (`id`, `sys_client`, `status`, `tags`, `sys_detail`, audit fields) are
 /// injected by the `#[schema]` macro as standard platform columns.
-#[schema(Ctx, "repoexample")]
+#[schema("crate::common::context::Ctx", "repoexample")]
 #[allow(non_snake_case, non_camel_case_types, nonstandard_style)]
 pub struct RepoExample {
     pub value: i32,

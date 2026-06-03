@@ -4,9 +4,9 @@ use mae::request_context::RequestContext;
 #[derive(Default, Clone)]
 pub struct TestContext {}
 
-pub type Ctx = RequestContext<mae::testing::context::TestContext<TestContext>>;
+pub type Ctx<'a> = RequestContext<'a, mae::testing::context::TestContext<TestContext>>;
 
-pub async fn get_context() -> Result<Ctx> {
+pub async fn get_context<'a>() -> Result<Ctx<'a>> {
     mae::testing::context::get_context::<TestContext>().await
 }
 

@@ -28,7 +28,7 @@ use num::Zero;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use sqlx::{Arguments, Executor, Postgres};
+use sqlx::{Arguments, AssertSqlSafe, Executor, Postgres};
 
 use crate::repo::filter::Filter;
 use crate::request_context::ContextAccessor;
@@ -212,6 +212,9 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
     }
     fn session_user(&self) -> &i32 {
         self.ctx.session_user()
+    }
+    fn db_trx(&self) -> &Option<sqlx::PgTransaction> {
+        self.ctx.db_trx()
     }
 }
 
@@ -399,9 +402,13 @@ pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToF
     {
         async move {
             self.authenticate_request()?;
+            // UNSAFE:
+            // We can assert the String is safe becuase we explicitely rely on PgArgs for user input
+            // we also use a controlled interface (the mae ORM) for building the statement itself
+            // pg-mae also has strict rules as to what the app_user can do
             let sql = self.to_sql()?;
             let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments>(
-                &sql,
+                AssertSqlSafe(sql),
                 self.args(self.session_user())
             );
             let res: anyhow::Result<Vec<A>> = req

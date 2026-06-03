@@ -38,16 +38,18 @@ impl<C: Default + Clone> TestContext<C> {
 }
 
 /// Convenience type alias matching the downstream service pattern.
-pub type Ctx<C> = RequestContext<TestContext<C>>;
+pub type Ctx<'a, C> = RequestContext<'a, TestContext<C>>;
 
 /// Build a [`Ctx<C>`] backed by the shared Postgres pool.
-pub async fn get_context<C: Default + Clone>() -> Result<RequestContext<TestContext<C>>> {
+pub async fn get_context<'a, C: Default + Clone>() -> Result<RequestContext<'a, TestContext<C>>> {
     let base_pool = postgres::shared_pool().await?.clone();
     let pool = Arc::new(base_pool.clone());
+    let db_trx = Arc::new(None);
 
     Ok(RequestContext::<TestContext<C>> {
         db_pool: pool,
         session: Session { user_id: 1 },
-        custom: TestContext { inner: C::default(), pool: base_pool }.into()
+        custom: TestContext { inner: C::default(), pool: base_pool }.into(),
+        db_trx
     })
 }
