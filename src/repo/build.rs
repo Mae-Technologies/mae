@@ -213,9 +213,6 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
     fn session_user(&self) -> &i32 {
         self.ctx.session_user()
     }
-    fn db_trx(&self) -> &Option<sqlx::PgTransaction> {
-        self.ctx.db_trx()
-    }
 }
 
 impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch>

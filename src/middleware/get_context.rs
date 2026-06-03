@@ -38,8 +38,7 @@ pub async fn get_context<T: 'static + Clone>(
                     .clone()
                     .into_inner()
             );
-            let db_trx = Arc::new(None);
-            req.extensions_mut().insert(RequestContext { db_pool, custom, session, db_trx });
+            req.extensions_mut().insert(RequestContext { db_pool, custom, session });
             next.call(req).await
         }
         None => {
