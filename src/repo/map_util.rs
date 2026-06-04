@@ -1,3 +1,4 @@
+use super::default::DomainStatus;
 use super::type_def::{ToField, ToInsertRow, ToPatch, ToUpdateRow};
 use sqlx::Arguments;
 use std::fmt::{Debug, Display};
@@ -112,6 +113,7 @@ impl<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> Debug for SqlStatem
 
 // Filter / Where block of the Query
 pub enum Filter {
+    StatusIs(DomainStatus),
     Equals(i32),
     NotEquals(i32),
     In(Vec<i32>),
@@ -146,7 +148,8 @@ impl BindArgs for Filter {
             Self::Gte(v) => args.add(v),
             Self::Lt(v) => args.add(v),
             Self::Lte(v) => args.add(v),
-            Self::IsNull => Ok(())
+            Self::IsNull => Ok(()),
+            Self::StatusIs(v) => args.add(v)
         };
     }
     fn bind_len(&self) -> usize {
@@ -174,6 +177,7 @@ impl std::fmt::Debug for Filter {
             Self::Gte(v) => write!(f, "{:?}", v),
             Self::Lt(v) => write!(f, "{:?}", v),
             Self::Lte(v) => write!(f, "{:?}", v),
+            Self::StatusIs(v) => write!(f, "{:?}", v),
             Self::IsNull => Ok(())
         }
     }
@@ -196,7 +200,8 @@ impl Display for Filter {
             Filter::Gte(_) => write!(f, ">="),
             Filter::Lt(_) => write!(f, "<"),
             Filter::Lte(_) => write!(f, "<="),
-            Filter::IsNull => write!(f, "IS NULL")
+            Filter::IsNull => write!(f, "IS NULL"),
+            Filter::StatusIs(_) => write!(f, "=")
         }
     }
 }

@@ -2242,6 +2242,7 @@ dependencies = [
  "chrono",
  "config",
  "dotenvy",
+ "futures-util",
  "mae_macros",
  "neo4rs",
  "num",

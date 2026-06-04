@@ -30,6 +30,19 @@ mod into_filter;
 mod map_util;
 // mod sql_parts;
 mod type_def;
+pub use build::WithExecutor;
+pub use default::DomainStatus;
+
+pub mod prelude {
+
+    use super::*;
+    pub use crate::response;
+    pub use build::WithExecutor;
+    pub use default::DomainStatus;
+    pub use filter::*;
+
+    pub use implement::{Execute, Interface};
+}
 
 pub mod filter {
     use super::*;
@@ -50,9 +63,5 @@ pub mod macros {
 pub mod __private__ {
     use super::*;
     pub use build::Build;
-    // TODO: AsSqlParts should be a type;
-    // IntoMaeFilter is now public at mae::repo::filter::IntoMaeFilter;
-    // re-exported here for backward compatibility with older macro-generated code.
-    pub use into_filter::IntoMaeFilter;
     pub use map_util::{AsSqlParts, BindArgs, ToSqlParts};
 }

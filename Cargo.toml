@@ -77,6 +77,7 @@ url = { version = "2.5.8", optional = true }
 shellexpand = { version = "3.1.1", optional = true }
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "rustls-tls"] }
 actix-cors = "0.7.1"
+futures-util = "0.3.32"
 
 [dependencies.sqlx]
 version = "0.9.*"

@@ -1,4 +1,4 @@
-use crate::error_response::e500;
+use crate::response::e500;
 use crate::session::TypedSession;
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};

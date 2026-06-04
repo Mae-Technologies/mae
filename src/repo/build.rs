@@ -23,15 +23,16 @@
 //!         └── Builder<…>  — holds statement + filters; implements ToSql + Execute
 //! ```
 
+use crate::session::Session;
 use anyhow::{Ok, Result, anyhow};
 use num::Zero;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use sqlx::{Arguments, AssertSqlSafe, Executor, Postgres};
+use sqlx::{Arguments, AssertSqlSafe};
 
+use crate::context::{ContextAccessor, PgContext};
 use crate::repo::filter::Filter;
-use crate::request_context::ContextAccessor;
 
 use super::map_util::{BindArgs, FilterOp, SqlStatement, concat_sql_parts, sql_where};
 use super::type_def::{Context, QueryAs, ToField, ToInsertRow, ToPatch, ToUpdateRow};
@@ -134,7 +135,7 @@ pub trait Interface<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: T
     /// all `Option` fields in `rec` are `None`.
     ///
     /// Prefer [`patch`](Self::patch) when only a subset of fields should change.
-    fn update_many(ctx: &C, rec: U) -> Builder<'_, C, Self, I, U, F, P> {
+    fn update(ctx: &C, rec: U) -> Builder<'_, C, Self, I, U, F, P> {
         Self::build(ctx, SqlStatement::Update(rec))
     }
 
@@ -204,14 +205,12 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
 impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> ContextAccessor
     for Builder<'_, C, A, I, U, F, P>
 {
-    fn db_pool(&self) -> &sqlx::PgPool {
-        self.ctx.db_pool()
+    fn pg_context(&self) -> &PgContext {
+        &self.ctx.pg_context()
     }
-    fn session(&self) -> &crate::session::Session {
+
+    fn session(&self) -> &Session {
         self.ctx.session()
-    }
-    fn session_user(&self) -> &i32 {
-        self.ctx.session_user()
     }
 }
 
@@ -360,28 +359,72 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> {
 pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch>:
     ToSql<I, U, F, P> + ContextAccessor
 {
-    /// Execute the statement without returning rows (e.g. a side-effect-only mutation).
-    fn execute(&self, _ctx: &C) -> impl std::future::Future<Output = anyhow::Result<()>> + Send
-    where
-        Self: Sync
-    {
-        async { todo!() }
-    }
     fn fetch_optional(
         &self,
-        _ctx: &C
-    ) -> impl std::future::Future<Output = anyhow::Result<Option<A>>> + Send
+        with_executor: WithExecutor
+    ) -> impl std::future::Future<Output = anyhow::Result<Option<A>>> + Send + '_
     where
-        Self: Sync
+        Self: Sync + Send,
+        A: 'static + Send + Unpin + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
     {
-        async { todo!() }
+        async move {
+            self.authenticate_request()?;
+
+            let sql = self.to_sql()?;
+            let user_id = self.session_user();
+            let args = self.args(&user_id);
+
+            let query =
+                sqlx::query_as_with::<_, A, sqlx::postgres::PgArguments>(AssertSqlSafe(sql), args);
+
+            match with_executor {
+                WithExecutor::Pool => {
+                    Ok(query.fetch_optional(self.pg_context().db_pool.as_ref()).await?)
+                }
+
+                WithExecutor::Transaction => {
+                    self.pg_context()
+                        .with_tx(|tx| {
+                            Box::pin(async move { Ok(query.fetch_optional(&mut **tx).await?) })
+                        })
+                        .await
+                }
+            }
+        }
     }
     /// Execute and return exactly one row, erroring if zero or more than one row is returned.
-    fn fetch_one(&self, _ctx: &C) -> impl std::future::Future<Output = anyhow::Result<A>> + Send
+    fn fetch_one(
+        &self,
+        with_executor: WithExecutor
+    ) -> impl std::future::Future<Output = anyhow::Result<A>> + Send + '_
     where
-        Self: Sync
+        Self: Sync + Send,
+        A: 'static + Send + Unpin + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
     {
-        async { todo!() }
+        async move {
+            self.authenticate_request()?;
+
+            let sql = self.to_sql()?;
+            let user_id = self.session_user();
+            let args = self.args(&user_id);
+
+            let query =
+                sqlx::query_as_with::<_, A, sqlx::postgres::PgArguments>(AssertSqlSafe(sql), args);
+
+            match with_executor {
+                WithExecutor::Pool => {
+                    Ok(query.fetch_one(self.pg_context().db_pool.as_ref()).await?)
+                }
+
+                WithExecutor::Transaction => {
+                    self.pg_context()
+                        .with_tx(|tx| {
+                            Box::pin(async move { Ok(query.fetch_one(&mut **tx).await?) })
+                        })
+                        .await
+                }
+            }
+        }
     }
     /// Execute and return all matching rows.
     ///
@@ -390,29 +433,37 @@ pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToF
     ///
     /// Pass a `&mut Transaction` to participate in the caller's transaction, or the pool
     /// directly for auto-commit behaviour.
-    fn fetch_all<'c>(
+    fn fetch_all(
         &self,
-        exec: impl Executor<'c, Database = Postgres>
-    ) -> impl std::future::Future<Output = anyhow::Result<Vec<A>>> + Send
+        with_executor: WithExecutor
+    ) -> impl std::future::Future<Output = anyhow::Result<Vec<A>>> + Send + '_
     where
-        Self: Sync + Send
+        Self: Sync + Send,
+        A: 'static + Send + Unpin + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
     {
         async move {
             self.authenticate_request()?;
-            // UNSAFE:
-            // We can assert the String is safe becuase we explicitely rely on PgArgs for user input
-            // we also use a controlled interface (the mae ORM) for building the statement itself
-            // pg-mae also has strict rules as to what the app_user can do
+
             let sql = self.to_sql()?;
-            let req = sqlx::query_as_with::<'_, sqlx::Postgres, A, sqlx::postgres::PgArguments>(
-                AssertSqlSafe(sql),
-                self.args(self.session_user())
-            );
-            let res: anyhow::Result<Vec<A>> = req
-                .fetch_all(exec)
-                .await
-                .map_err(|e| anyhow::anyhow!("Unable to fetch all: {}", e));
-            res
+            let user_id = self.session_user();
+            let args = self.args(&user_id);
+
+            let query =
+                sqlx::query_as_with::<_, A, sqlx::postgres::PgArguments>(AssertSqlSafe(sql), args);
+
+            match with_executor {
+                WithExecutor::Pool => {
+                    Ok(query.fetch_all(self.pg_context().db_pool.as_ref()).await?)
+                }
+
+                WithExecutor::Transaction => {
+                    self.pg_context()
+                        .with_tx(|tx| {
+                            Box::pin(async move { Ok(query.fetch_all(&mut **tx).await?) })
+                        })
+                        .await
+                }
+            }
         }
     }
     /// Validate the request before hitting the DB.
@@ -511,4 +562,10 @@ where
         write!(f, "\n{}\n", "*".repeat(18))?;
         std::fmt::Result::Ok(())
     }
+}
+
+#[derive(Clone)]
+pub enum WithExecutor {
+    Pool,
+    Transaction
 }

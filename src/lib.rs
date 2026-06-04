@@ -17,13 +17,17 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod app;
-pub mod error_response;
+pub mod context;
 pub mod health;
 pub mod middleware;
 pub mod repo;
-pub mod request_context;
-pub mod routes;
+pub mod response;
 pub mod session;
 pub mod telemetry;
 pub mod testing;
 pub mod util;
+pub mod route {
+    pub use super::response;
+    pub use actix_web::web;
+    pub use actix_web::{delete, get, post, put};
+}

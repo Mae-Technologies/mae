@@ -9,7 +9,7 @@ use anyhow::Result;
 use sqlx::PgPool;
 use std::sync::Arc;
 
-use crate::request_context::RequestContext;
+use crate::context::RequestContext;
 use crate::session::Session;
 use crate::testing::container::postgres;
 
@@ -44,10 +44,13 @@ pub type Ctx<C> = RequestContext<TestContext<C>>;
 pub async fn get_context<'a, C: Default + Clone>() -> Result<RequestContext<TestContext<C>>> {
     let base_pool = postgres::shared_pool().await?.clone();
     let pool = Arc::new(base_pool.clone());
+    let session = Arc::new(Session { user_id: 1 });
+    let ctx = RequestContext::<TestContext<C>>::new(
+        pool,
+        session,
+        Arc::new(TestContext { inner: C::default(), pool: base_pool }.into())
+    )
+    .await?;
 
-    Ok(RequestContext::<TestContext<C>> {
-        db_pool: pool,
-        session: Session { user_id: 1 },
-        custom: TestContext { inner: C::default(), pool: base_pool }.into()
-    })
+    Ok(ctx)
 }

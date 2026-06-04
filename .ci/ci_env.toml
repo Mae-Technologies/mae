@@ -9,8 +9,7 @@
 #   CI_STAGE_SERVICE_NEO4J_HOST     — set per-repo by ansible k8s-bootstrap
 # No need to list them here; they never appear blank.
 
-# TODO: should be 45%
-coverage_threshold = 0
+coverage_threshold = 65
 
 engine = "nextest"
 env = [

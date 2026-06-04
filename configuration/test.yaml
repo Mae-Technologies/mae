@@ -1,10 +1,40 @@
 database:
+  # mae::DatabaseSettings expects `database_name`, not `db_name`.
+  database_name: "service_test_db"
+
+# database_admin values are used by mae's test helpers (postgres-mae testcontainer).
+# Update db_name and any service-specific migration paths after syncing.
+database_admin:
+  superuser: "postgres"
+  superuser_password: "postgres"
+  superuser_pwd: "password"
+  superuser_db: "postgres"
+  migrator_user: "db_migrator"
+  migrator_pwd: "migrator_secret"
+  migrator_password: "migrator_secret"
+  app_user: "app"
+  app_user_pwd: "secret"
+  app_user_password: "secret"
+  table_provisioner_user: "table_provisioner"
+  table_provisioner_pwd: "provisioner_secret"
+  # TODO: update to match your service's migrations layout
+  admin_migrations_path: "admin_migrations"
+  app_migrations_path: "migrations"
+  search_path: "options=-csearch_path%3Dapp"
   db_name: "service_test_db"
 
-database_admin:
-  db_name: "service_test_db"
-  superuser_password: "postgres"
+graphdb:
+  host: "localhost"
+  port: "7687"
+  username: "neo4j"
+  password: "testpassword"
 
 messagebroker:
   username: "guest"
   password: "guest"
+
+redis_uri: "redis://127.0.0.1:6379/2"
+
+# Stub for service-specific test configuration.
+# TODO: override with your service's custom settings.
+custom: {}
