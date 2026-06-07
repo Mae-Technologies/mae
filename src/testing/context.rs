@@ -44,7 +44,7 @@ pub type Ctx<C> = RequestContext<TestContext<C>>;
 pub async fn get_context<'a, C: Default + Clone>() -> Result<RequestContext<TestContext<C>>> {
     let base_pool = postgres::shared_pool().await?.clone();
     let pool = Arc::new(base_pool.clone());
-    let session = Arc::new(Session { user_id: 1 });
+    let session = Arc::new(Session(Some(1)));
     let ctx = RequestContext::<TestContext<C>>::new(
         pool,
         session,

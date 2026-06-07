@@ -24,7 +24,7 @@
 //! ```
 
 use crate::session::Session;
-use anyhow::{Ok, Result, anyhow};
+use anyhow::{Ok, Result, anyhow, bail};
 use num::Zero;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -333,7 +333,7 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> {
             }
         })
     }
-    fn args(&self, session_user: &i32) -> sqlx::postgres::PgArguments {
+    fn args(&self, session_user: &Option<i32>) -> Result<sqlx::postgres::PgArguments> {
         let mut args = sqlx::postgres::PgArguments::default();
         match self.statement() {
             SqlStatement::Select(_) => {}
@@ -341,13 +341,16 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> {
                 self.statement().bind(&mut args);
                 // Always bind session_user last for INSERT (created_by) and UPDATE/PATCH
                 // (updated_by). The placeholder is the final positional param in to_sql().
-                let _ = args.add(session_user);
+                match session_user {
+                    Some(id) => args.add(id),
+                    None => bail!("session user required")
+                };
             }
         };
         for w in self.filters().iter() {
             w.bind(&mut args);
         }
-        args
+        Ok(args)
     }
 }
 
@@ -372,7 +375,7 @@ pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToF
 
             let sql = self.to_sql()?;
             let user_id = self.session_user();
-            let args = self.args(&user_id);
+            let args = self.args(&user_id)?;
 
             let query =
                 sqlx::query_as_with::<_, A, sqlx::postgres::PgArguments>(AssertSqlSafe(sql), args);
@@ -406,7 +409,7 @@ pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToF
 
             let sql = self.to_sql()?;
             let user_id = self.session_user();
-            let args = self.args(&user_id);
+            let args = self.args(&user_id)?;
 
             let query =
                 sqlx::query_as_with::<_, A, sqlx::postgres::PgArguments>(AssertSqlSafe(sql), args);
@@ -446,7 +449,7 @@ pub trait Execute<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToF
 
             let sql = self.to_sql()?;
             let user_id = self.session_user();
-            let args = self.args(&user_id);
+            let args = self.args(&user_id)?;
 
             let query =
                 sqlx::query_as_with::<_, A, sqlx::postgres::PgArguments>(AssertSqlSafe(sql), args);

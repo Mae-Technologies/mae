@@ -28,6 +28,7 @@ pub mod testing;
 pub mod util;
 pub mod route {
     pub use super::response;
-    pub use actix_web::web;
-    pub use actix_web::{delete, get, post, put};
+    pub use super::session::{Session, SessionHandler};
+    pub use actix_session::{Session as ActixSession, SessionExt};
+    pub use actix_web::{HttpRequest, delete, get, post, put, web};
 }

@@ -144,8 +144,8 @@ pub trait ContextAccessor {
 
     fn session(&self) -> &Session;
 
-    fn session_user(&self) -> i32 {
-        self.session().user_id
+    fn session_user(&self) -> Option<i32> {
+        self.session().0
     }
 }
 
