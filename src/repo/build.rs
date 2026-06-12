@@ -341,7 +341,7 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> {
                 self.statement().bind(&mut args);
                 // Always bind session_user last for INSERT (created_by) and UPDATE/PATCH
                 // (updated_by). The placeholder is the final positional param in to_sql().
-                match session_user {
+                let _ = match session_user {
                     Some(id) => args.add(id),
                     None => bail!("session user required")
                 };

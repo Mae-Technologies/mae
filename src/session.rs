@@ -6,7 +6,6 @@
 use actix_session::{Session as ActixSession, SessionExt, SessionGetError, SessionInsertError};
 use actix_web::dev::Payload;
 use actix_web::{FromRequest, HttpRequest};
-use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use std::future::{Ready, ready};
 use std::ops::Deref;

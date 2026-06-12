@@ -3817,6 +3817,7 @@ dependencies = [
  "memchr",
  "native-tls",
  "percent-encoding",
+ "rust_decimal",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3826,6 +3827,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -3886,12 +3888,14 @@ dependencies = [
  "generic-array",
  "log",
  "percent-encoding",
+ "rust_decimal",
  "serde",
  "sha1",
  "sha2 0.11.0",
  "sqlx-core",
  "thiserror 2.0.18",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -3919,6 +3923,7 @@ dependencies = [
  "md-5",
  "memchr",
  "rand 0.10.1",
+ "rust_decimal",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -3927,6 +3932,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.18",
  "tracing",
+ "uuid",
  "whoami",
 ]
 
@@ -3953,6 +3959,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]

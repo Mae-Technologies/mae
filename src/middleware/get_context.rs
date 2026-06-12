@@ -1,12 +1,11 @@
 // use crate::context::{PgContext, RequestContext};
-use crate::context::{PgContext, RequestContext};
+use crate::context::{RequestContext};
 use crate::response::e500;
 use crate::session::SessionHandler;
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
-use actix_web::error::InternalError;
 use actix_web::middleware::Next;
-use actix_web::{FromRequest, HttpMessage, HttpResponse, web};
+use actix_web::{FromRequest, HttpMessage, web};
 use anyhow::anyhow;
 use sqlx::PgPool;
 use std::sync::Arc;
