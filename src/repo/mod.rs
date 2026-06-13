@@ -34,9 +34,9 @@ pub use build::WithExecutor;
 pub use default::DomainStatus;
 
 pub mod prelude {
-
     use super::*;
-    pub use crate::response;
+    pub use crate::route::response;
+    pub use crate::route::response::ServiceError;
     pub use build::WithExecutor;
     pub use default::DomainStatus;
     pub use filter::*;

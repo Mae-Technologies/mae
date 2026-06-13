@@ -18,17 +18,10 @@
 
 pub mod app;
 pub mod context;
-pub mod health;
 pub mod middleware;
 pub mod repo;
-pub mod response;
+pub mod route;
 pub mod session;
 pub mod telemetry;
 pub mod testing;
 pub mod util;
-pub mod route {
-    pub use super::response;
-    pub use super::session::{Session, SessionHandler};
-    pub use actix_session::{Session as ActixSession, SessionExt};
-    pub use actix_web::{HttpRequest, delete, get, post, put, web};
-}
