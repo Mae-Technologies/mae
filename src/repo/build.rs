@@ -24,17 +24,16 @@
 //! ```
 
 use crate::session::Session;
-use anyhow::{Ok, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Ok, Result};
 use num::Zero;
+use sqlx::{Arguments, AssertSqlSafe};
 use std::fmt::Debug;
 use std::marker::PhantomData;
-
-use sqlx::{Arguments, AssertSqlSafe};
 
 use crate::context::{ContextAccessor, PgContext};
 use crate::repo::filter::Filter;
 
-use super::map_util::{BindArgs, FilterOp, SqlStatement, concat_sql_parts, sql_where};
+use super::map_util::{concat_sql_parts, sql_where, BindArgs, FilterOp, SqlStatement};
 use super::type_def::{Context, QueryAs, ToField, ToInsertRow, ToPatch, ToUpdateRow};
 
 // /////
@@ -68,7 +67,10 @@ pub trait Build<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPat
             schema: Self::schema(),
             ctx,
             query_as: PhantomData,
-            returning: None
+            returning: None,
+            sort_by: None,
+            offset: None,
+            limit: None
         }
     }
     /// Return the fully-qualified SQL schema/table name for this domain type
@@ -181,7 +183,10 @@ pub struct Builder<
     schema: String,
     ctx: &'a C,
     query_as: PhantomData<fn() -> A>,
-    returning: Option<Vec<F>>
+    returning: Option<Vec<F>>,
+    sort_by: Option<Vec<F>>,
+    offset: Option<u32>,
+    limit: Option<u32>
 }
 
 impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch>
@@ -198,6 +203,24 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
     /// Override the default `RETURNING *` clause with a specific column list.
     pub fn returning(mut self, values: Vec<F>) -> Self {
         self.returning = Some(values);
+        self
+    }
+
+    // TODO: currently not being implemented into the SQL statement
+    pub fn limit(mut self, limit: Option<u32>) -> Self {
+        self.limit = limit;
+        self
+    }
+
+    // TODO: currently not being implemented into the SQL statement
+    pub fn offset(mut self, offset: Option<u32>) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    // TODO: currently not being implemented into the SQL statement
+    pub fn sort_by(mut self, values: Option<Vec<F>>) -> Self {
+        self.sort_by = values;
         self
     }
 }
@@ -567,8 +590,14 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub enum WithExecutor {
     Pool,
     Transaction
+}
+
+impl From<Option<WithExecutor>> for WithExecutor {
+    fn from(value: Option<WithExecutor>) -> Self {
+        value.unwrap_or(WithExecutor::Pool)
+    }
 }

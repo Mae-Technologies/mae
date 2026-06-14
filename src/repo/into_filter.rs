@@ -110,6 +110,21 @@ impl IntoMaeFilter for Option<chrono::NaiveDate> {
     }
 }
 
+impl IntoMaeFilter for chrono::DateTime<chrono::Utc> {
+    fn into_mae_filter(self) -> Filter {
+        Filter::StringIs(self.to_string())
+    }
+}
+
+impl IntoMaeFilter for Option<chrono::DateTime<chrono::Utc>> {
+    fn into_mae_filter(self) -> Filter {
+        match self {
+            Some(v) => v.into_mae_filter(),
+            None => Filter::IsNull
+        }
+    }
+}
+
 impl IntoMaeFilter for rust_decimal::Decimal {
     fn into_mae_filter(self) -> Filter {
         Filter::StringIs(self.to_string())
