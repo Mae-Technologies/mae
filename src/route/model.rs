@@ -9,8 +9,8 @@ pub struct ListQuery<Q, F: ToField> {
     pub sort_by: Option<Vec<F>>
 }
 
-impl ListQuery<Q, F> {
-    fn new(filter: Q) -> anyhow::Result<Self> {
+impl<Q, F: ToField> ListQuery<Q, F> {
+    pub fn new(filter: Q) -> anyhow::Result<Self> {
         Ok(Self { filter, offset: None, sort_by: None, limit: None })
     }
 }

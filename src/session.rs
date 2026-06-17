@@ -105,7 +105,7 @@ impl SessionHandler {
                         let user_id = user_id.parse::<i32>();
                         match user_id {
                             Ok(user_id) => Ok(Session(Some(user_id))),
-                            Err(_) => Ok(Session(None))
+                            Err(_) => Err(anyhow::anyhow!("Invalid user_id").into())
                         }
                     }
                     None => Ok(Session(None))

@@ -1,4 +1,3 @@
-// use crate::context::{PgContext, RequestContext};
 use crate::context::RequestContext;
 use crate::route::response::e500;
 use crate::session::SessionHandler;
@@ -10,8 +9,6 @@ use anyhow::anyhow;
 use sqlx::PgPool;
 use std::sync::Arc;
 
-// WARNING: This function currently doesn't work... although it compiles.
-// route 500's with a 'missing expected request extension data' message
 pub async fn get_context<T: 'static + Clone>(
     mut req: ServiceRequest,
     next: Next<impl MessageBody>
@@ -38,6 +35,17 @@ pub async fn get_context<T: 'static + Clone>(
             .into_inner()
     );
     let ctx = RequestContext::new(db_pool, Arc::new(session_data), custom).await.map_err(e500)?;
-    req.extensions_mut().insert(ctx);
-    next.call(req).await
+    req.extensions_mut().insert(ctx.clone());
+    let resp = next.call(req).await?;
+
+    if resp.status().is_success() {
+        let mut guard = ctx.pg_context.tx.lock().await;
+        if let Some(tx) = guard.take() {
+            drop(guard);
+            if let Err(e) = tx.commit().await {
+                return Err(e500(e));
+            }
+        }
+    };
+    Ok(resp)
 }

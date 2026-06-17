@@ -17,6 +17,8 @@
 mod get_context;
 mod get_service_session;
 mod get_session;
+mod scope;
+
 pub use get_context::*;
 pub use get_session::*;
 
@@ -26,3 +28,4 @@ pub use get_session::*;
 /// to register internal (service-to-service) routes. See the module-level docs in
 /// `get_service_session.rs` for the full rationale.
 pub use get_service_session::*;
+
