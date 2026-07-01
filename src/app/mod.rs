@@ -39,7 +39,9 @@ pub mod prelude {
     pub use crate::app::run::run;
     /// Both session helpers are re-exported here so microservice `main.rs` files have a
     /// single import path: `use mae::app::prelude::{get_service_session, get_session}`.
-    pub use crate::middleware::{get_context, get_service_session, get_session};
+    pub use crate::middleware::{
+        get_context, get_microservice_session, get_service_session, get_session,
+    };
     pub use mae_macros::*;
 
     pub use actix_cors::Cors;

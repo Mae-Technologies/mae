@@ -7,6 +7,7 @@
 //! - [`middleware`] — Actix-Web extractors for sessions and service auth
 //! - [`telemetry`] — structured tracing/logging setup
 //! - [`session`] — session identity type
+//! - [`service`] — inter-service HTTP client for proxying downstream requests
 //! - [`error_response`] — standardised HTTP error responses
 //! - [`testing`] — test utilities (enabled via `test-utils` feature)
 
@@ -21,6 +22,7 @@ pub mod context;
 pub mod middleware;
 pub mod repo;
 pub mod route;
+pub mod service;
 pub mod session;
 pub mod telemetry;
 pub mod testing;
