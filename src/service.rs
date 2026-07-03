@@ -46,19 +46,27 @@ fn unwrap_service_data(mut value: Value) -> Value {
     }
 }
 
+fn extract_service_error_message(value: &Value) -> String {
+    if let Some(message) = value.get("error").and_then(|v| v.as_str()) {
+        return message.to_string();
+    }
+    if let Some(message) = value.as_str() {
+        return message.to_string();
+    }
+    value.to_string()
+}
+
 fn map_http_status_to_error(status: reqwest::StatusCode, value: Value) -> ServiceError {
+    let message = extract_service_error_message(&value);
     match status.as_u16() {
-        400 => ServiceError::BadRequest(value.to_string()),
+        400 => ServiceError::BadRequest(message),
         401 => ServiceError::Unauthorized,
-        404 => ServiceError::NotFound(value.to_string()),
-        409 => ServiceError::Conflict(value.to_string()),
+        404 => ServiceError::NotFound(message),
+        409 => ServiceError::Conflict(message),
         _ => ServiceError::Unexpected(anyhow::anyhow!(
             "HTTP {} - {}",
             status.as_u16(),
-            value
-                .get("error")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown error")
+            message
         )),
     }
 }
@@ -99,7 +107,7 @@ impl HttpServiceClient {
         }
     }
 
-    fn headers(&self) -> Result<header::HeaderMap, ServiceError> {
+    fn base_headers(&self) -> Result<header::HeaderMap, ServiceError> {
         let mut map = header::HeaderMap::new();
 
         let user_val = self
@@ -119,11 +127,15 @@ impl HttpServiceClient {
         })?;
         map.insert(name, val);
 
+        Ok(map)
+    }
+
+    fn json_headers(&self) -> Result<header::HeaderMap, ServiceError> {
+        let mut map = self.base_headers()?;
         map.insert(
             header::CONTENT_TYPE,
             header::HeaderValue::from_static("application/json"),
         );
-
         Ok(map)
     }
 
@@ -148,7 +160,7 @@ impl HttpServiceClient {
         let response = self
             .client
             .get(format!("{}{}", self.base_url, path))
-            .headers(self.headers()?)
+            .headers(self.base_headers()?)
             .send()
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
@@ -163,7 +175,7 @@ impl HttpServiceClient {
         let response = self
             .client
             .post(format!("{}{}", self.base_url, path))
-            .headers(self.headers()?)
+            .headers(self.json_headers()?)
             .json(body)
             .send()
             .await
@@ -179,8 +191,23 @@ impl HttpServiceClient {
         let response = self
             .client
             .put(format!("{}{}", self.base_url, path))
-            .headers(self.headers()?)
+            .headers(self.json_headers()?)
             .json(body)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        self.handle_response(response).await
+    }
+
+    pub async fn delete<R>(&self, path: &str) -> ServiceResult<R>
+    where
+        R: DeserializeOwned + Serialize,
+    {
+        let response = self
+            .client
+            .delete(format!("{}{}", self.base_url, path))
+            .headers(self.base_headers()?)
             .send()
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
@@ -203,7 +230,7 @@ impl HttpServiceClient {
         let response = self
             .client
             .request(method, format!("{}{}", self.base_url, path))
-            .headers(self.headers()?)
+            .headers(self.json_headers()?)
             .json(body)
             .send()
             .await

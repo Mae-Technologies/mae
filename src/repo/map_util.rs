@@ -124,6 +124,8 @@ pub enum Filter {
     NotIlike(String),
     StringIs(String),
     StringIsNot(String),
+    /// Compare a Postgres enum column to a text bind param with an explicit cast.
+    PgEnumCast(String, &'static str),
     Gt(i32),
     Gte(i32),
     Lt(i32),
@@ -144,6 +146,7 @@ impl BindArgs for Filter {
             Self::NotIlike(v) => args.add(v),
             Self::StringIs(v) => args.add(v.to_owned()),
             Self::StringIsNot(v) => args.add(v),
+            Self::PgEnumCast(v, _) => args.add(v.to_owned()),
             Self::Gt(v) => args.add(v),
             Self::Gte(v) => args.add(v),
             Self::Lt(v) => args.add(v),
@@ -173,6 +176,7 @@ impl std::fmt::Debug for Filter {
             Self::NotIlike(v) => write!(f, "{:?}", v),
             Self::StringIs(v) => write!(f, "{:?}", v),
             Self::StringIsNot(v) => write!(f, "{:?}", v),
+            Self::PgEnumCast(v, pg_type) => write!(f, "{:?}::{pg_type}", v),
             Self::Gt(v) => write!(f, "{:?}", v),
             Self::Gte(v) => write!(f, "{:?}", v),
             Self::Lt(v) => write!(f, "{:?}", v),
@@ -196,6 +200,7 @@ impl Display for Filter {
             Filter::NotIlike(_) => write!(f, "NOT ILIKE"),
             Filter::StringIs(_) => write!(f, "="),
             Filter::StringIsNot(_) => write!(f, "!="),
+            Filter::PgEnumCast(_, _) => write!(f, "="),
             Filter::Gt(_) => write!(f, ">"),
             Filter::Gte(_) => write!(f, ">="),
             Filter::Lt(_) => write!(f, "<"),
@@ -277,6 +282,16 @@ pub fn sql_where<F: ToField>(
             match filter_val {
                 Filter::IsNull => {
                     format!("\n\t{}{}{} IS NULL", kw, update_batch_ref_table, field_str)
+                }
+                Filter::PgEnumCast(_, pg_type) => {
+                    f_idx += f.bind_len();
+                    format!(
+                        "\n\t{}{}{} = ${}::{pg_type}",
+                        kw,
+                        update_batch_ref_table,
+                        field_str,
+                        f_idx + idx
+                    )
                 }
                 v => {
                     f_idx += f.bind_len();
