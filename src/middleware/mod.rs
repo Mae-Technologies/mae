@@ -30,4 +30,3 @@ pub use get_session::*;
 /// to register internal (service-to-service) routes. See the module-level docs in
 /// `get_service_session.rs` for the full rationale.
 pub use get_service_session::*;
-

@@ -3,7 +3,7 @@ use crate::route::response::e500;
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::middleware::Next;
-use actix_web::{web, FromRequest};
+use actix_web::{FromRequest, web};
 use anyhow::anyhow;
 
 pub enum Scope {

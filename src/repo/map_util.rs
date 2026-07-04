@@ -431,10 +431,7 @@ mod tests {
 
     #[test]
     fn sql_where_in_uses_any() {
-        let filters = vec![FilterOp::Begin(
-            TestField::Age,
-            Filter::In(vec![1, 2, 3]),
-        )];
+        let filters = vec![FilterOp::Begin(TestField::Age, Filter::In(vec![1, 2, 3]))];
 
         let sql = sql_where(&filters, 0, None);
 

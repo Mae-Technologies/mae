@@ -82,10 +82,8 @@ async fn start_inner() -> Inner {
         .await
         .must_expect("failed to start postgres-mae container");
 
-    let port = container
-        .get_host_port_ipv4(5432)
-        .await
-        .must_expect("failed to get postgres mapped port");
+    let port =
+        container.get_host_port_ipv4(5432).await.must_expect("failed to get postgres mapped port");
 
     Inner { container, id, port }
 }

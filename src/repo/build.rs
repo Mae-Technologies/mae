@@ -24,7 +24,7 @@
 //! ```
 
 use crate::session::Session;
-use anyhow::{anyhow, bail, Ok, Result};
+use anyhow::{Ok, Result, anyhow, bail};
 use num::Zero;
 use sqlx::{Arguments, AssertSqlSafe};
 use std::fmt::Debug;
@@ -33,7 +33,7 @@ use std::marker::PhantomData;
 use crate::context::{ContextAccessor, PgContext};
 use crate::repo::filter::Filter;
 
-use super::map_util::{concat_sql_parts, sql_where, BindArgs, FilterOp, SqlStatement};
+use super::map_util::{BindArgs, FilterOp, SqlStatement, concat_sql_parts, sql_where};
 use super::type_def::{Context, QueryAs, ToField, ToInsertRow, ToPatch, ToUpdateRow};
 
 // /////

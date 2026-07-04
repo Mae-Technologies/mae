@@ -6,9 +6,9 @@
 
 use crate::route::response::{ServiceError, ServiceResult, Success};
 use anyhow::Context;
-use reqwest::{header, Client};
-use serde::de::DeserializeOwned;
+use reqwest::{Client, header};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 /// Connection parameters for an inter-service HTTP client.
@@ -17,7 +17,7 @@ pub struct ServiceClientConfig {
     pub base_url: String,
     pub user_id: i32,
     pub micro_service_key: String,
-    pub micro_service_pass: String,
+    pub micro_service_pass: String
 }
 
 /// Generic HTTP client that forwards the active session user and micro-service credentials.
@@ -26,7 +26,7 @@ pub struct HttpServiceClient {
     base_url: String,
     user_id: i32,
     micro_service_key: String,
-    micro_service_pass: String,
+    micro_service_pass: String
 }
 
 fn unwrap_service_data(mut value: Value) -> Value {
@@ -41,7 +41,7 @@ fn unwrap_service_data(mut value: Value) -> Value {
                 }
                 return Value::Object(map);
             }
-            _ => return value,
+            _ => return value
         }
     }
 }
@@ -63,17 +63,13 @@ fn map_http_status_to_error(status: reqwest::StatusCode, value: Value) -> Servic
         401 => ServiceError::Unauthorized,
         404 => ServiceError::NotFound(message),
         409 => ServiceError::Conflict(message),
-        _ => ServiceError::Unexpected(anyhow::anyhow!(
-            "HTTP {} - {}",
-            status.as_u16(),
-            message
-        )),
+        _ => ServiceError::Unexpected(anyhow::anyhow!("HTTP {} - {}", status.as_u16(), message))
     }
 }
 
 fn map_http_status_to_success<R>(status: reqwest::StatusCode, data: R) -> ServiceResult<R>
 where
-    R: Serialize,
+    R: Serialize
 {
     match status.as_u16() {
         200 => Success::ok(data),
@@ -90,7 +86,7 @@ where
 
 fn deserialize_response<T>(value: Value) -> Result<T, ServiceError>
 where
-    T: DeserializeOwned,
+    T: DeserializeOwned
 {
     serde_json::from_value(unwrap_service_data(value))
         .map_err(|e| ServiceError::Unexpected(anyhow::anyhow!("deserialize failed: {e}")))
@@ -103,25 +99,22 @@ impl HttpServiceClient {
             base_url: config.base_url,
             user_id: config.user_id,
             micro_service_key: config.micro_service_key,
-            micro_service_pass: config.micro_service_pass,
+            micro_service_pass: config.micro_service_pass
         }
     }
 
     fn base_headers(&self) -> Result<header::HeaderMap, ServiceError> {
         let mut map = header::HeaderMap::new();
 
-        let user_val = self
-            .user_id
-            .to_string()
-            .parse::<header::HeaderValue>()
-            .map_err(|e| {
-                ServiceError::Unexpected(anyhow::anyhow!("invalid X-Session-User header: {e}"))
-            })?;
+        let user_val = self.user_id.to_string().parse::<header::HeaderValue>().map_err(|e| {
+            ServiceError::Unexpected(anyhow::anyhow!("invalid X-Session-User header: {e}"))
+        })?;
         map.insert("X-Session-User", user_val);
 
-        let name = header::HeaderName::from_bytes(self.micro_service_key.as_bytes()).map_err(
-            |e| ServiceError::Unexpected(anyhow::anyhow!("invalid service key header name: {e}")),
-        )?;
+        let name =
+            header::HeaderName::from_bytes(self.micro_service_key.as_bytes()).map_err(|e| {
+                ServiceError::Unexpected(anyhow::anyhow!("invalid service key header name: {e}"))
+            })?;
         let val = self.micro_service_pass.parse::<header::HeaderValue>().map_err(|e| {
             ServiceError::Unexpected(anyhow::anyhow!("invalid service pass header value: {e}"))
         })?;
@@ -132,16 +125,13 @@ impl HttpServiceClient {
 
     fn json_headers(&self) -> Result<header::HeaderMap, ServiceError> {
         let mut map = self.base_headers()?;
-        map.insert(
-            header::CONTENT_TYPE,
-            header::HeaderValue::from_static("application/json"),
-        );
+        map.insert(header::CONTENT_TYPE, header::HeaderValue::from_static("application/json"));
         Ok(map)
     }
 
     async fn handle_response<R>(&self, response: reqwest::Response) -> ServiceResult<R>
     where
-        R: DeserializeOwned + Serialize,
+        R: DeserializeOwned + Serialize
     {
         let status = response.status();
         let value = response.json::<Value>().await.context("parse failed")?;
@@ -155,7 +145,7 @@ impl HttpServiceClient {
 
     pub async fn get<R>(&self, path: &str) -> ServiceResult<R>
     where
-        R: DeserializeOwned + Serialize,
+        R: DeserializeOwned + Serialize
     {
         let response = self
             .client
@@ -170,7 +160,7 @@ impl HttpServiceClient {
 
     pub async fn post<R>(&self, path: &str, body: &Value) -> ServiceResult<R>
     where
-        R: DeserializeOwned + Serialize,
+        R: DeserializeOwned + Serialize
     {
         let response = self
             .client
@@ -186,7 +176,7 @@ impl HttpServiceClient {
 
     pub async fn put<R>(&self, path: &str, body: &Value) -> ServiceResult<R>
     where
-        R: DeserializeOwned + Serialize,
+        R: DeserializeOwned + Serialize
     {
         let response = self
             .client
@@ -202,7 +192,7 @@ impl HttpServiceClient {
 
     pub async fn delete<R>(&self, path: &str) -> ServiceResult<R>
     where
-        R: DeserializeOwned + Serialize,
+        R: DeserializeOwned + Serialize
     {
         let response = self
             .client
@@ -221,11 +211,10 @@ impl HttpServiceClient {
     /// [`crate::route::ListQuery`] payload instead of URL query parameters.
     pub async fn query<R>(&self, path: &str, body: &Value) -> ServiceResult<R>
     where
-        R: DeserializeOwned + Serialize,
+        R: DeserializeOwned + Serialize
     {
-        let method = reqwest::Method::from_bytes(b"QUERY").map_err(|e| {
-            ServiceError::Unexpected(anyhow::anyhow!("invalid QUERY method: {e}"))
-        })?;
+        let method = reqwest::Method::from_bytes(b"QUERY")
+            .map_err(|e| ServiceError::Unexpected(anyhow::anyhow!("invalid QUERY method: {e}")))?;
 
         let response = self
             .client

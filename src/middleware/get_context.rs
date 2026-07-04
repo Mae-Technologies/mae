@@ -4,7 +4,7 @@ use crate::session::SessionHandler;
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::middleware::Next;
-use actix_web::{web, FromRequest, HttpMessage};
+use actix_web::{FromRequest, HttpMessage, web};
 use anyhow::anyhow;
 use sqlx::PgPool;
 use std::sync::Arc;

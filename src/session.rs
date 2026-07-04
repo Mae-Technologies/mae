@@ -7,7 +7,7 @@ use actix_session::{Session as ActixSession, SessionExt, SessionGetError, Sessio
 use actix_web::dev::Payload;
 use actix_web::{FromRequest, HttpRequest};
 use serde::{Deserialize, Serialize};
-use std::future::{ready, Ready};
+use std::future::{Ready, ready};
 use std::ops::Deref;
 
 use crate::route::response::ServiceError;

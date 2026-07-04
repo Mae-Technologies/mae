@@ -20,10 +20,12 @@ mod tests {
             ("active", DomainStatus::Active),
             ("deleted", DomainStatus::Deleted),
             ("archived", DomainStatus::Archived),
-            ("incomplete", DomainStatus::Incomplete),
+            ("incomplete", DomainStatus::Incomplete)
         ] {
             let parsed: DomainStatus = serde_json::from_value(serde_json::json!(raw)).unwrap();
-            assert!(matches!(parsed, ref e if std::mem::discriminant(e) == std::mem::discriminant(&expected)));
+            assert!(
+                matches!(parsed, ref e if std::mem::discriminant(e) == std::mem::discriminant(&expected))
+            );
         }
     }
 }

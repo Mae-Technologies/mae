@@ -9,7 +9,7 @@ use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::error::InternalError;
 use actix_web::middleware::Next;
-use actix_web::{web, HttpMessage, HttpResponse};
+use actix_web::{HttpMessage, HttpResponse, web};
 
 /// Service context fields required for header-key microservice authentication.
 pub trait MicroserviceAuth {
@@ -19,15 +19,15 @@ pub trait MicroserviceAuth {
 
 pub async fn get_microservice_session<T>(
     req: ServiceRequest,
-    next: Next<impl MessageBody>,
+    next: Next<impl MessageBody>
 ) -> Result<ServiceResponse<impl MessageBody>, actix_web::Error>
 where
-    T: MicroserviceAuth + Clone + 'static,
+    T: MicroserviceAuth + Clone + 'static
 {
     let app_ctx = req.app_data::<web::Data<T>>().ok_or_else(|| {
         InternalError::from_response(
             "Missing app context",
-            HttpResponse::InternalServerError().finish(),
+            HttpResponse::InternalServerError().finish()
         )
     })?;
 
