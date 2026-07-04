@@ -293,6 +293,26 @@ pub fn sql_where<F: ToField>(
                         f_idx + idx
                     )
                 }
+                Filter::In(_) => {
+                    f_idx += f.bind_len();
+                    format!(
+                        "\n\t{}{}{} = ANY(${})",
+                        kw,
+                        update_batch_ref_table,
+                        field_str,
+                        f_idx + idx
+                    )
+                }
+                Filter::NotIn(_) => {
+                    f_idx += f.bind_len();
+                    format!(
+                        "\n\t{}{}{} <> ALL(${})",
+                        kw,
+                        update_batch_ref_table,
+                        field_str,
+                        f_idx + idx
+                    )
+                }
                 v => {
                     f_idx += f.bind_len();
                     format!(
@@ -407,5 +427,18 @@ mod tests {
         let sql = sql_where(&filters, 0, None);
 
         must_be_true(sql.contains("AND age"));
+    }
+
+    #[test]
+    fn sql_where_in_uses_any() {
+        let filters = vec![FilterOp::Begin(
+            TestField::Age,
+            Filter::In(vec![1, 2, 3]),
+        )];
+
+        let sql = sql_where(&filters, 0, None);
+
+        must_be_true(sql.contains("age = ANY($1)"));
+        must_be_true(!sql.contains("age IN $1"));
     }
 }
