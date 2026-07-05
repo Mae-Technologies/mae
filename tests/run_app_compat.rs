@@ -19,6 +19,11 @@ use mae::app::prelude::*;
 
 // ── Minimal App implementation ────────────────────────────────────────────────
 
+/// `#[run_app]` expands `get_context::<AppContext>()` — must exist in scope.
+#[derive(Clone)]
+#[allow(dead_code)]
+struct AppContext;
+
 #[allow(dead_code)]
 struct CompatCheck {
     port: u16,
