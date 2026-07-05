@@ -69,8 +69,8 @@ totp-rs = { version = "5.7", default-features = false, features = ["gen_secret",
 
 # Optional deps pulled in by the test-utils feature
 pretty_assertions = { version = "1.4.1", optional = true }
-testcontainers = { version = "0.26", optional = true }
-testcontainers-modules = { version = "0.14", optional = true, default-features = false, features = ["postgres", "neo4j", "redis", "rabbitmq"] }
+testcontainers = { version = "0.27", optional = true }
+testcontainers-modules = { version = "0.15", optional = true, default-features = false, features = ["postgres", "neo4j", "redis", "rabbitmq"] }
 once_cell = { version = "1", optional = true }
 uuid = { version = "1", features = ["v4"] }
 rust_decimal = { version = "1" }
@@ -93,8 +93,8 @@ once_cell = "1"
 uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 sqlx = { version = "0.9.*", features = ["runtime-tokio", "postgres", "macros", "migrate"] }
-testcontainers = "0.26"
-testcontainers-modules = { version = "0.14", features = ["postgres"] }
+testcontainers = "0.27"
+testcontainers-modules = { version = "0.15", features = ["postgres"] }
 pretty_assertions = "1.4.1"
 dotenvy = "0.15.7"
 url = "2.5.8"

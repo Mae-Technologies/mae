@@ -3,12 +3,12 @@
 //! Random nonce is prepended to ciphertext, then base64-encoded for TEXT storage.
 
 use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm, Nonce
+    Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit}
 };
+use anyhow::{Context, Result, anyhow};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use rand::RngCore;
-use anyhow::{anyhow, Context, Result};
-use base64::{engine::general_purpose::STANDARD, Engine};
 use secrecy::{ExposeSecret, SecretString};
 
 const NONCE_LEN: usize = 12;
@@ -24,6 +24,7 @@ fn key_bytes(secret: &SecretString) -> [u8; KEY_LEN] {
 }
 
 /// Encrypt a plaintext secret for database storage.
+#[allow(deprecated)]
 pub fn encrypt_field(encryption_key: &SecretString, plaintext: &str) -> Result<String> {
     if plaintext.is_empty() {
         return Ok(String::new());
@@ -48,6 +49,7 @@ pub fn encrypt_field(encryption_key: &SecretString, plaintext: &str) -> Result<S
 }
 
 /// Decrypt a stored ciphertext field. Returns `None` when the column is empty.
+#[allow(deprecated)]
 pub fn decrypt_field(encryption_key: &SecretString, stored: &str) -> Result<Option<String>> {
     if stored.is_empty() {
         return Ok(None);
@@ -78,5 +80,59 @@ pub fn peek_field(encryption_key: &SecretString, stored: &str) -> Result<Option<
     match decrypt_field(encryption_key, stored) {
         Ok(value) => Ok(value),
         Err(_) => Ok(Some(stored.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::must::{Must, must_eq};
+
+    fn test_key() -> SecretString {
+        SecretString::from("01234567890123456789012345678901".to_string())
+    }
+
+    #[test]
+    fn encrypt_empty_returns_empty() {
+        let key = test_key();
+        must_eq(encrypt_field(&key, "").expect("encrypt").as_str(), "");
+    }
+
+    #[test]
+    fn decrypt_empty_returns_none() {
+        let key = test_key();
+        let out = decrypt_field(&key, "").expect("decrypt");
+        assert!(out.is_none());
+    }
+
+    #[test]
+    fn round_trip_encrypt_decrypt() {
+        let key = test_key();
+        let plain = "totp-secret-value";
+        let enc = encrypt_field(&key, plain).expect("encrypt");
+        let dec = decrypt_field(&key, &enc).expect("decrypt").must();
+        must_eq(dec.as_str(), plain);
+    }
+
+    #[test]
+    fn peek_decrypts_encrypted_value() {
+        let key = test_key();
+        let enc = encrypt_field(&key, "peek-me").expect("encrypt");
+        let peeked = peek_field(&key, &enc).expect("peek").must();
+        must_eq(peeked.as_str(), "peek-me");
+    }
+
+    #[test]
+    fn peek_returns_legacy_plaintext() {
+        let key = test_key();
+        let peeked = peek_field(&key, "legacy-plain").expect("peek").must();
+        must_eq(peeked.as_str(), "legacy-plain");
+    }
+
+    #[test]
+    fn decrypt_rejects_short_ciphertext() {
+        let key = test_key();
+        let bad = STANDARD.encode([0u8; 4]);
+        assert!(decrypt_field(&key, &bad).is_err());
     }
 }

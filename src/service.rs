@@ -33,11 +33,11 @@ fn unwrap_service_data(mut value: Value) -> Value {
     loop {
         match value {
             Value::Object(mut map) => {
-                if map.len() == 1 {
-                    if let Some(inner) = map.remove("data") {
-                        value = inner;
-                        continue;
-                    }
+                if map.len() == 1
+                    && let Some(inner) = map.remove("data")
+                {
+                    value = inner;
+                    continue;
                 }
                 return Value::Object(map);
             }
@@ -227,5 +227,80 @@ impl HttpServiceClient {
             .map_err(|e| anyhow::anyhow!(e))?;
 
         self.handle_response(response).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::route::response::ServiceError;
+    use crate::testing::must::{Must, must_eq};
+    use reqwest::StatusCode as ReqStatus;
+
+    #[test]
+    fn unwrap_service_data_strips_nested_data_envelope() {
+        let input = serde_json::json!({"data": {"data": {"id": 1}}});
+        let out = unwrap_service_data(input);
+        must_eq(out["id"].as_i64().must(), 1);
+    }
+
+    #[test]
+    fn extract_service_error_message_reads_error_field() {
+        let msg = extract_service_error_message(&serde_json::json!({"error": "bad"}));
+        must_eq(msg.as_str(), "bad");
+    }
+
+    #[test]
+    fn map_http_status_to_error_maps_known_codes() {
+        let err =
+            map_http_status_to_error(ReqStatus::BAD_REQUEST, serde_json::json!({"error": "x"}));
+        assert!(matches!(err, ServiceError::BadRequest(_)));
+
+        let err = map_http_status_to_error(ReqStatus::UNAUTHORIZED, serde_json::json!({}));
+        assert!(matches!(err, ServiceError::Unauthorized));
+
+        let err = map_http_status_to_error(
+            ReqStatus::UNPROCESSABLE_ENTITY,
+            serde_json::json!({"error": "trial"})
+        );
+        assert!(matches!(err, ServiceError::UnprocessableEntity(_)));
+    }
+
+    #[test]
+    fn map_http_status_to_success_maps_200_and_201() {
+        assert!(map_http_status_to_success(ReqStatus::OK, serde_json::json!({"a": 1})).is_ok());
+        assert!(
+            map_http_status_to_success(ReqStatus::CREATED, serde_json::json!({"a": 1})).is_ok()
+        );
+        assert!(
+            map_http_status_to_success(ReqStatus::ACCEPTED, serde_json::json!({"a": 1})).is_ok()
+        );
+    }
+
+    #[test]
+    fn deserialize_response_unwraps_data_field() {
+        let value = serde_json::json!({"data": {"name": "widget"}});
+        let parsed: serde_json::Value = deserialize_response(value).expect("deserialize");
+        must_eq(parsed["name"].as_str().must(), "widget");
+    }
+
+    #[test]
+    fn client_builds_auth_headers() {
+        let client = HttpServiceClient::new(ServiceClientConfig {
+            base_url: "http://localhost:8080".to_string(),
+            user_id: 7,
+            micro_service_key: "X-Service-Key".to_string(),
+            micro_service_pass: "secret-pass".to_string()
+        });
+
+        let headers = client.base_headers().expect("headers");
+        must_eq(headers.get("X-Session-User").expect("user").to_str().expect("str"), "7");
+        must_eq(headers.get("X-Service-Key").expect("key").to_str().expect("str"), "secret-pass");
+
+        let json_headers = client.json_headers().expect("json headers");
+        must_eq(
+            json_headers.get(reqwest::header::CONTENT_TYPE).expect("ct").to_str().expect("str"),
+            "application/json"
+        );
     }
 }

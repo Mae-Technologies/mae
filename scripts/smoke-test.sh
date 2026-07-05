@@ -73,6 +73,11 @@ done
 info "🦀  Rust quality gate detected — running pre-push checks"
 echo
 
+# rust-toolchain.toml is honored only by rustup's cargo, not distro-packaged cargo.
+if [[ -d "${HOME}/.cargo/bin" ]]; then
+  export PATH="${HOME}/.cargo/bin:${PATH}"
+fi
+
 run() {
   local label="$1"
   shift
@@ -121,7 +126,8 @@ print(d.get('coverage_threshold', ''))
   fi
 fi
 
-run "coverage (≥${COV_THRESHOLD}% lines)" cargo +nightly llvm-cov --lib --fail-under-lines "$COV_THRESHOLD"
+IGNORE_COVERAGE='app/(app|build|run)\.rs|middleware/|testing/container/(redis|rabbitmq)\.rs'
+run "coverage (≥${COV_THRESHOLD}% lines)" env MAE_TESTCONTAINERS=1 cargo +nightly llvm-cov --features integration-testing --all-features --ignore-filename-regex "$IGNORE_COVERAGE" --fail-under-lines "$COV_THRESHOLD"
 ok "✔  Coverage threshold met"
 
 ########################################

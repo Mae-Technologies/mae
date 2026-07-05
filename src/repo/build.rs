@@ -229,7 +229,7 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
     for Builder<'_, C, A, I, U, F, P>
 {
     fn pg_context(&self) -> &PgContext {
-        &self.ctx.pg_context()
+        self.ctx.pg_context()
     }
 
     fn session(&self) -> &Session {

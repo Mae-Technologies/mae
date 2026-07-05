@@ -1,6 +1,6 @@
 //! TOTP helpers (RFC 6238) for authenticator-app 2FA.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use rand::RngCore;
 use totp_rs::{Algorithm, Rfc6238, Secret, TOTP};
 
@@ -53,8 +53,7 @@ pub fn verify_code(secret_b32: &str, code: &str) -> Result<bool> {
     }
 
     let totp = totp_from_base32(secret_b32, "")?;
-    totp.check_current(trimmed)
-        .map_err(|e| anyhow!("TOTP verify failed: {e}"))
+    totp.check_current(trimmed).map_err(|e| anyhow!("TOTP verify failed: {e}"))
 }
 
 #[cfg(test)]

@@ -37,7 +37,7 @@ impl<T: Clone> RequestContext<T> {
     }
     pub async fn new(db_pool: Arc<PgPool>, session: Arc<Session>, custom: Arc<T>) -> Result<Self> {
         let pg_context = Arc::new(PgContext::new(db_pool)?);
-        Ok(RequestContext { pg_context, session: session, custom: custom })
+        Ok(RequestContext { pg_context, session, custom })
     }
 }
 impl<T> FromRequest for RequestContext<T>
@@ -89,7 +89,7 @@ pub struct PgContext {
 impl PgContext {
     pub fn new(db_pool: Arc<PgPool>) -> Result<Self> {
         let tx = Arc::new(Mutex::new(None));
-        Ok(PgContext { tx, db_pool: db_pool })
+        Ok(PgContext { tx, db_pool })
     }
     pub async fn with_tx<R, F>(&self, f: F) -> Result<R>
     where
@@ -127,20 +127,26 @@ impl<'g, 't> Deref for PgTxGuard<'g, 't> {
     type Target = PgTransaction<'t>;
 
     fn deref(&self) -> &Self::Target {
-        self.guard.as_ref().expect("transaction should be initialized")
+        match self.guard.as_ref() {
+            Some(tx) => tx,
+            None => panic!("transaction should be initialized")
+        }
     }
 }
 
 impl<'g, 't> DerefMut for PgTxGuard<'g, 't> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard.as_mut().expect("transaction should be initialized")
+        match self.guard.as_mut() {
+            Some(tx) => tx,
+            None => panic!("transaction should be initialized")
+        }
     }
 }
 
 pub type TxFuture<'tx, R> = Pin<Box<dyn Future<Output = Result<R>> + Send + 'tx>>;
 
 pub trait ContextAccessor {
-    fn pg_context<'g>(&'g self) -> &'g PgContext;
+    fn pg_context(&self) -> &PgContext;
 
     fn session(&self) -> &Session;
 

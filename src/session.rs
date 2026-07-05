@@ -124,3 +124,34 @@ impl FromRequest for SessionHandler {
         ready(Ok(SessionHandler(req.get_session())))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::route::response::ServiceError;
+    use crate::testing::must::must_eq;
+
+    #[test]
+    fn session_or_err_returns_user_id() {
+        let session = Session(Some(99));
+        must_eq(session.session_or_err().expect("ok"), 99);
+    }
+
+    #[test]
+    fn session_or_err_missing_is_unauthorized() {
+        let session = Session(None);
+        assert!(matches!(session.session_or_err(), Err(ServiceError::Unauthorized)));
+    }
+
+    #[test]
+    fn display_formats_some_and_none() {
+        must_eq(Session(Some(5)).to_string().as_str(), "5");
+        must_eq(Session(None).to_string().as_str(), "none");
+    }
+
+    #[test]
+    fn deref_exposes_inner_option() {
+        let session = Session(Some(12));
+        must_eq(*session, Some(12));
+    }
+}

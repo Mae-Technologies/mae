@@ -334,7 +334,7 @@ pub fn sql_where<F: ToField>(
     whr
 }
 
-#[cfg(all(test, feature = "test-utils"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::repo::filter::{Filter, FilterOp};

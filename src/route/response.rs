@@ -199,4 +199,39 @@ mod tests {
         let json = serde_json::to_value(&s).must();
         must_eq(json["data"]["key"].as_str().must(), "val");
     }
+
+    #[test]
+    fn success_created_and_custom_status() {
+        let created = Success::created(serde_json::json!({})).expect("created");
+        must_eq(created.status, actix_web::http::StatusCode::CREATED);
+
+        let accepted =
+            Success::with_status(serde_json::json!({}), actix_web::http::StatusCode::ACCEPTED)
+                .expect("accepted");
+        must_eq(accepted.status, actix_web::http::StatusCode::ACCEPTED);
+    }
+
+    #[test]
+    fn service_error_not_found_conflict_unprocessable_display() {
+        must_eq(ServiceError::NotFound("missing".to_string()).to_string().as_str(), "missing");
+        must_eq(ServiceError::Conflict("dup".to_string()).to_string().as_str(), "dup");
+        must_eq(
+            ServiceError::UnprocessableEntity("invalid".to_string()).to_string().as_str(),
+            "invalid"
+        );
+    }
+
+    #[test]
+    fn service_error_not_found_conflict_unprocessable_status_codes() {
+        for (err, expected) in [
+            (ServiceError::NotFound("x".to_string()), actix_web::http::StatusCode::NOT_FOUND),
+            (ServiceError::Conflict("x".to_string()), actix_web::http::StatusCode::CONFLICT),
+            (
+                ServiceError::UnprocessableEntity("x".to_string()),
+                actix_web::http::StatusCode::UNPROCESSABLE_ENTITY
+            )
+        ] {
+            must_eq(err.error_response().status(), expected);
+        }
+    }
 }
