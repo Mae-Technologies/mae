@@ -278,7 +278,7 @@ pub trait ToSql<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> {
                     })
                     .collect::<Result<Vec<_>>>()?
                     .join(",\n\t");
-                format!("SELECT\n\t{}\nFROM {}{};", &fields, self.schema(), where_str,)
+                format!("SELECT\n\t{}\nFROM {}{};", fields, self.schema(), where_str,)
             }
             SqlStatement::InsertOne(row) => {
                 let (mut fields, bind_idx_option) = row.to_sql_parts();
@@ -560,7 +560,7 @@ where
                         filter_bindings_string.push_str(&format!(
                             "\n\t${} = {:?}",
                             i + bind_len + 1,
-                            &filter
+                            filter
                         ));
                     }
                 }
