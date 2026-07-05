@@ -184,10 +184,12 @@ jobs:
         run: cargo fmt -- --check
 
       - name: 📊 Coverage (llvm-cov)
-        env:
-          MAE_TESTCONTAINERS: "1"
         run: |
           set -o pipefail
+          # No MAE_TESTCONTAINERS here — mae-runner has no docker.sock in this job.
+          # Docker-gated #[mae_test(docker)] tests compile without option_env! and skip
+          # at runtime (same contract as scripts/int-test.sh --ci).
+          unset MAE_TESTCONTAINERS
           THRESHOLD=$(python3 -c "
           import tomllib, pathlib
           d = tomllib.loads(pathlib.Path('.ci/ci_env.toml').read_text())
