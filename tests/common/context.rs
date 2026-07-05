@@ -6,7 +6,7 @@ pub struct TestContext {}
 
 pub type Ctx = RequestContext<mae::testing::context::TestContext<TestContext>>;
 
-pub async fn get_context<'c>() -> Result<Ctx> {
+pub async fn get_context() -> Result<Ctx> {
     mae::testing::context::get_context::<TestContext>().await
 }
 

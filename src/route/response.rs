@@ -96,7 +96,7 @@ impl actix_web::ResponseError for ServiceError {
 /// # Examples
 ///
 /// ```
-/// use mae::error_response::e500;
+/// use mae::route::response::e500;
 ///
 /// let err = e500("something went wrong");
 /// assert_eq!(err.as_response_error().status_code(), actix_web::http::StatusCode::INTERNAL_SERVER_ERROR);
@@ -113,7 +113,7 @@ where
 /// # Examples
 ///
 /// ```
-/// use mae::error_response::e401;
+/// use mae::route::response::e401;
 ///
 /// let err = e401("unauthorized");
 /// assert_eq!(err.as_response_error().status_code(), actix_web::http::StatusCode::UNAUTHORIZED);
@@ -130,7 +130,7 @@ where
 /// # Examples
 ///
 /// ```
-/// use mae::error_response::e400;
+/// use mae::route::response::e400;
 ///
 /// let err = e400("invalid input");
 /// assert_eq!(err.as_response_error().status_code(), actix_web::http::StatusCode::BAD_REQUEST);

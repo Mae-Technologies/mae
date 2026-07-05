@@ -23,9 +23,9 @@ use crate::route::response::ServiceError;
 /// ```
 /// use mae::session::Session;
 ///
-/// let session = Session { user_id: 42 };
-/// assert_eq!(*session, 42);           // Deref to i32
-/// assert_eq!(format!("{}", session), "42"); // Display
+/// let session = Session(Some(42));
+/// assert_eq!(*session, Some(42));
+/// assert_eq!(format!("{}", session), "42");
 /// ```
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Session(pub Option<i32>);
