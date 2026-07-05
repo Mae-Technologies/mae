@@ -1,4 +1,3 @@
-use pretty_assertions::{assert_eq, assert_ne};
 use std::panic::Location;
 
 /// Trait for safe test assertions on `Option` and `Result`.

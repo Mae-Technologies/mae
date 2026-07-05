@@ -22,7 +22,6 @@ use mae::repo::implement::{KeyAuths, ToField};
 use mae::repo::macros::schema;
 pub use serde_json::Map;
 pub use sqlx::types::JsonValue as SqlxJson;
-
 /// Minimal domain struct used as the test subject for the repo CRUD layer.
 ///
 /// Only `value` and `string_value` are declared as user-defined fields; all other

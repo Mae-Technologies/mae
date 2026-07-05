@@ -1,3 +1,4 @@
+use super::default::DomainStatus;
 use super::type_def::{ToField, ToInsertRow, ToPatch, ToUpdateRow};
 use sqlx::Arguments;
 use std::fmt::{Debug, Display};
@@ -112,6 +113,7 @@ impl<I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> Debug for SqlStatem
 
 // Filter / Where block of the Query
 pub enum Filter {
+    StatusIs(DomainStatus),
     Equals(i32),
     NotEquals(i32),
     In(Vec<i32>),
@@ -122,6 +124,8 @@ pub enum Filter {
     NotIlike(String),
     StringIs(String),
     StringIsNot(String),
+    /// Compare a Postgres enum column to a text bind param with an explicit cast.
+    PgEnumCast(String, &'static str),
     Gt(i32),
     Gte(i32),
     Lt(i32),
@@ -142,11 +146,13 @@ impl BindArgs for Filter {
             Self::NotIlike(v) => args.add(v),
             Self::StringIs(v) => args.add(v.to_owned()),
             Self::StringIsNot(v) => args.add(v),
+            Self::PgEnumCast(v, _) => args.add(v.to_owned()),
             Self::Gt(v) => args.add(v),
             Self::Gte(v) => args.add(v),
             Self::Lt(v) => args.add(v),
             Self::Lte(v) => args.add(v),
-            Self::IsNull => Ok(())
+            Self::IsNull => Ok(()),
+            Self::StatusIs(v) => args.add(v)
         };
     }
     fn bind_len(&self) -> usize {
@@ -170,10 +176,12 @@ impl std::fmt::Debug for Filter {
             Self::NotIlike(v) => write!(f, "{:?}", v),
             Self::StringIs(v) => write!(f, "{:?}", v),
             Self::StringIsNot(v) => write!(f, "{:?}", v),
+            Self::PgEnumCast(v, pg_type) => write!(f, "{:?}::{pg_type}", v),
             Self::Gt(v) => write!(f, "{:?}", v),
             Self::Gte(v) => write!(f, "{:?}", v),
             Self::Lt(v) => write!(f, "{:?}", v),
             Self::Lte(v) => write!(f, "{:?}", v),
+            Self::StatusIs(v) => write!(f, "{:?}", v),
             Self::IsNull => Ok(())
         }
     }
@@ -192,11 +200,13 @@ impl Display for Filter {
             Filter::NotIlike(_) => write!(f, "NOT ILIKE"),
             Filter::StringIs(_) => write!(f, "="),
             Filter::StringIsNot(_) => write!(f, "!="),
+            Filter::PgEnumCast(_, _) => write!(f, "="),
             Filter::Gt(_) => write!(f, ">"),
             Filter::Gte(_) => write!(f, ">="),
             Filter::Lt(_) => write!(f, "<"),
             Filter::Lte(_) => write!(f, "<="),
-            Filter::IsNull => write!(f, "IS NULL")
+            Filter::IsNull => write!(f, "IS NULL"),
+            Filter::StatusIs(_) => write!(f, "=")
         }
     }
 }
@@ -273,6 +283,36 @@ pub fn sql_where<F: ToField>(
                 Filter::IsNull => {
                     format!("\n\t{}{}{} IS NULL", kw, update_batch_ref_table, field_str)
                 }
+                Filter::PgEnumCast(_, pg_type) => {
+                    f_idx += f.bind_len();
+                    format!(
+                        "\n\t{}{}{} = ${}::{pg_type}",
+                        kw,
+                        update_batch_ref_table,
+                        field_str,
+                        f_idx + idx
+                    )
+                }
+                Filter::In(_) => {
+                    f_idx += f.bind_len();
+                    format!(
+                        "\n\t{}{}{} = ANY(${})",
+                        kw,
+                        update_batch_ref_table,
+                        field_str,
+                        f_idx + idx
+                    )
+                }
+                Filter::NotIn(_) => {
+                    f_idx += f.bind_len();
+                    format!(
+                        "\n\t{}{}{} <> ALL(${})",
+                        kw,
+                        update_batch_ref_table,
+                        field_str,
+                        f_idx + idx
+                    )
+                }
                 v => {
                     f_idx += f.bind_len();
                     format!(
@@ -294,7 +334,7 @@ pub fn sql_where<F: ToField>(
     whr
 }
 
-#[cfg(all(test, feature = "test-utils"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::repo::filter::{Filter, FilterOp};
@@ -387,5 +427,15 @@ mod tests {
         let sql = sql_where(&filters, 0, None);
 
         must_be_true(sql.contains("AND age"));
+    }
+
+    #[test]
+    fn sql_where_in_uses_any() {
+        let filters = vec![FilterOp::Begin(TestField::Age, Filter::In(vec![1, 2, 3]))];
+
+        let sql = sql_where(&filters, 0, None);
+
+        must_be_true(sql.contains("age = ANY($1)"));
+        must_be_true(!sql.contains("age IN $1"));
     }
 }

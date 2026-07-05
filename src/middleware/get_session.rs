@@ -1,29 +1,21 @@
-use crate::error_response::e500;
-use crate::session::TypedSession;
+use crate::route::response::e500;
+use crate::session::SessionHandler;
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
-use actix_web::error::InternalError;
 use actix_web::middleware::Next;
-use actix_web::{FromRequest, HttpMessage, HttpResponse};
+use actix_web::{FromRequest, HttpMessage};
 
 pub async fn get_session(
     mut req: ServiceRequest,
     next: Next<impl MessageBody>
 ) -> Result<ServiceResponse<impl MessageBody>, actix_web::Error> {
-    let session = {
+    let typed_session = {
         let (http_req, payload) = req.parts_mut();
-        TypedSession::from_request(http_req, payload).await
+        SessionHandler::from_request(http_req, payload).await
     }?;
 
-    match session.get_session().map_err(e500)? {
-        Some(session_data) => {
-            req.extensions_mut().insert(session_data);
-            next.call(req).await
-        }
-        None => {
-            let resp = HttpResponse::Unauthorized().finish();
-            let e = anyhow::anyhow!("Unauthorized.");
-            Err(InternalError::from_response(e, resp).into())
-        }
-    }
+    let session = typed_session.get_session().map_err(e500)?;
+    req.extensions_mut().insert(session);
+    req.extensions_mut().insert(typed_session);
+    next.call(req).await
 }

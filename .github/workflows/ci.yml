@@ -183,15 +183,27 @@ jobs:
       - name: 🎨 Check formatting
         run: cargo fmt -- --check
 
-      - name: 📊 Coverage (llvm-cov + nextest)
+      - name: 📊 Coverage (llvm-cov)
         run: |
+          set -o pipefail
+          # No MAE_TESTCONTAINERS here — mae-runner has no docker.sock in this job.
+          # Docker-gated #[mae_test(docker)] tests compile without option_env! and skip
+          # at runtime (same contract as scripts/int-test.sh --ci).
+          unset MAE_TESTCONTAINERS
           THRESHOLD=$(python3 -c "
           import tomllib, pathlib
           d = tomllib.loads(pathlib.Path('.ci/ci_env.toml').read_text())
           print(d.get('coverage_threshold', 45))
           ")
           echo "Coverage threshold: ${THRESHOLD}%"
-          cargo +nightly llvm-cov nextest --lib --no-tests=warn --fail-under-lines "$THRESHOLD" 2>&1 | grep -v '^info: cargo-llvm-cov'
+          # Without MAE_TESTCONTAINERS, docker-gated integration tests skip — exclude
+          # modules they alone exercise from the coverage denominator (see smoke-test.sh
+          # for the narrower regex used locally with MAE_TESTCONTAINERS=1 + Docker).
+          IGNORE_COVERAGE='app/(app|build|run)\.rs|middleware/|testing/container/|testing/context\.rs|testing/env\.rs|repo/build\.rs|route/health\.rs|/context\.rs'
+          cargo +nightly llvm-cov \
+            --features integration-testing --all-features \
+            --ignore-filename-regex "$IGNORE_COVERAGE" \
+            --fail-under-lines "$THRESHOLD"
 
       - name: 🔍 Clippy
         run: cargo clippy -- -D warnings

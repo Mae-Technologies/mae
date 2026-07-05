@@ -1,83 +1,46 @@
 # Rust Development Rules
 
-Focus on code quality, safety, security, and reliability.
+Code quality, safety, security, and reliability — no exceptions.
 
-This project enforces Rust best practices using nightly tooling, aggressive linting, undefined behavior detection, dependency auditing (with `cargo-deny`), comprehensive CI, and Licensing.
+---
 
 ## Prerequisites
 
 ### cargo-llvm-cov (Required)
 
-`cargo-llvm-cov` is **mandatory** for this project. The pre-push hook and `smoke-test.sh` will **hard-fail** if it is not installed.
-
-**Install via cargo:**
+`cargo-llvm-cov` is **mandatory**. The pre-push hook and `smoke-test.sh` hard-fail without it.
 
 ```bash
 cargo +nightly install cargo-llvm-cov
-```
-
-**Install via Homebrew (macOS/Linux):**
-
-```bash
+# or
 brew install cargo-llvm-cov
 ```
 
-**Verify installation:**
+Verify: `cargo llvm-cov --version`
 
-```bash
-cargo llvm-cov --version
-```
-
-For more options, see: https://github.com/taiki-e/cargo-llvm-cov#installation
-
-> ⚠️ Without `cargo-llvm-cov` installed, you will **not** be able to push commits. This is intentional — coverage checking is a hard requirement, not optional.
+See: https://github.com/taiki-e/cargo-llvm-cov#installation
 
 ### TruffleHog (Required)
 
-TruffleHog is **mandatory** for this project. The pre-push hook and `smoke-test.sh` will **hard-fail** if it is not installed.
-
-**Install via Homebrew (macOS/Linux):**
+TruffleHog is **mandatory**. The pre-push hook and `smoke-test.sh` hard-fail without it.
 
 ```bash
 brew install trufflehog
-```
-
-**Install via install script (Linux):**
-
-```bash
+# or
 curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin
 ```
 
-**Verify installation:**
+Verify: `trufflehog --version`
 
-```bash
-trufflehog --version
-```
+See: https://github.com/trufflesecurity/trufflehog#installation
 
-For more options, see: https://github.com/trufflesecurity/trufflehog#installation
+---
 
-> ⚠️ Without `trufflehog` installed, you will **not** be able to push commits. This is intentional — secret scanning is a hard requirement, not optional.
-
-## Key Features
-
-- **Nightly Rust toolchain** with `rustfmt`, `clippy`, and `miri` (`rust-toolchain.toml`)
-- **Strict Clippy rules** banning `unwrap()`, `expect()`, and requiring documentation on `unsafe` blocks
-- **Miri** for detecting undefined behavior in tests
-- **cargo-deny** for license compliance, vulnerability scanning, yanked crate blocking, and source restrictions
-- **Opinionated rustfmt** configuration for consistent code style
-- **Optimized GitHub Actions CI** that runs checks only on changed `.rs` files
-- **Compile-time denials** for common anti-patterns (configured in `lib.rs`)
-- **Git pre-push hook** that automatically runs formatting, tests, Miri, Clippy, and deny checks before pushing commits
-- **Git pre-commit hook** that checks for latest rust_template changes
-- **Comprehensive .gitignore** to exclude build artifacts, temporary files, environment files, Docker outputs, and IDE/editor settings
-- **License support** via `--private <name>` flag (creates proprietary LICENSE file) **or** `--name <name>` flag (creates MIT LICENSE file)
-  - optionally set `RUST_OWNER` to use as the `<name>`
-
-## Tooling Details
+## Tooling
 
 ### Rust Toolchain (`rust-toolchain.toml`)
 
-Pins the project to the latest `nightly` channel with essential components:
+All services pin to nightly with these components:
 
 ```toml
 channel = "nightly"
@@ -85,83 +48,145 @@ components = ["rustfmt", "clippy", "miri"]
 profile = "minimal"
 ```
 
-### rustfmt (`rustfmt.toml`)
+### Clippy (`clippy.toml` + `Cargo.toml [lints.clippy]`)
 
-Enforces consistent formatting:
+Unwrap/expect are denied via `[lints.clippy]` in `Cargo.toml` — this only fires on user-written code, not external macro expansions:
 
-- 4-space indentation
-- 100 character line width
-- Trailing commas where possible
-- Unix newlines
-- Reordered imports
-
-### Clippy (`clippy.toml` + `lib.rs`)
-
-Bans footguns via `disallowed-methods`:
-
-- `Option::unwrap` / `expect`
-- `Result::unwrap` / `expect`
-
-Additional compile-time denials in `lib.rs`:
-
-```rust
-#![deny(clippy::disallowed_methods)]
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
-#![deny(clippy::undocumented_unsafe_blocks)]
-#![deny(unsafe_op_in_unsafe_fn)]
+```toml
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
 ```
+
+Test code is exempt via `clippy.toml`:
+
+```toml
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+```
+
+In test code, prefer `mae::testing::must::{Must, MustExpect}` over raw `.unwrap()` / `.expect()`.
 
 ### Miri
 
-Miri interprets Rust MIR to catch undefined behavior (UB) such as invalid memory access, uninitialized reads, and more.
-
-The CI runs:
+Detects undefined behavior. Run `--lib` only — integration tests requiring docker/postgres cannot run under Miri.
 
 ```bash
-cargo +nightly miri test --all-targets --all-features
+cargo +nightly miri test --lib
 ```
 
-**Resources**:
-- Official repository: https://github.com/rust-lang/miri
-- Documentation & usage: https://github.com/rust-lang/miri/blob/master/README.md
-- Undefined Behavior in Rust: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
+Skip tests incompatible with Miri:
 
-### Test Utilities (`mae::testing`)
+```rust
+#[cfg_attr(miri, ignore)]
+```
 
-The template no longer ships a local `tests/must.rs` helper.
-
-Use the test helper utilities provided by the `mae` library (`mae::testing`) instead.
-This keeps test helper behavior centralized and avoids template-specific duplication.
-
-### cargo-deny (`deny.toml` & `deny.exceptions.toml`)
+### cargo-deny (`deny.toml` + `deny.exceptions.toml`)
 
 Enforces workspace-wide dependency policy:
 
 - Allowed licenses: `MIT`, `Apache-2.0`, `BSD-3-Clause`, `ISC`, `MPL-2.0`
-- Blocks known vulnerabilities and yanked crates
-- Restricts sources to `crates.io` and your GitHub repositories
+- Blocks known vulnerabilities (RUSTSEC advisories) and yanked crates
+- Restricts sources to `crates.io` and Mae-Technologies GitHub repos
 
-[read the `cargo-deny` docs](https://embarkstudios.github.io/cargo-deny/checks/bans/cfg.html)
-
-### GitHub Actions CI (`.github/workflows/ci.yml`)
-
-Triggers on PR to `main` or `production`. Runs four parallel jobs after **Mission Brief** (config parsing):
-
-- **🔐 Secret Scan** — trufflehog scan of the last commit
-- **🦀 Ferris Says No Bugs** — rustfmt, clippy, llvm-cov coverage, cargo-deny
-- **🔌 Connection Check** → **⚙️ Integration Gauntlet** — connectivity probe then integration tests via `bash scripts/int-test.sh --ci`
-
-Coverage threshold is read from `.ci/ci_env.toml` (`coverage_threshold` key, default 45%).
-
-#### Configuring service-specific secrets
-
-Service-specific host secrets use **standard names** set per-repo by the ansible `k8s-bootstrap` playbook. The CI workflow injects them directly — no declarations needed in `.ci/ci_env.toml`.
-
-`.ci/ci_env.toml` only needs the local dev flags:
+Add exceptions to `deny.exceptions.toml` with justification:
 
 ```toml
-coverage_threshold = 45
+exceptions = [
+  { crate = "some-crate", allow = ["BSD-2-Clause"] },
+]
+```
+
+### Test Utilities (`mae::testing`)
+
+Use `mae::testing::must::{Must, MustExpect}` for fallible operations in tests instead of `.unwrap()` / `.expect()`. These traits are enabled via the `test-utils` feature:
+
+```toml
+[dev-dependencies]
+mae = { version = "...", features = ["test-utils"] }
+```
+
+---
+
+## Pre-Push Checks (Mandatory)
+
+The pre-push hook runs `scripts/smoke-test.sh` before every push. All checks must pass:
+
+```bash
+cargo +nightly fmt -- --check
+cargo +nightly clippy --all-targets --all-features -- -D warnings -D clippy::undocumented_unsafe_blocks
+cargo +nightly miri test --lib
+bash scripts/int-test.sh           # full integration test suite
+cargo +nightly llvm-cov --lib --fail-under-lines <threshold>
+cargo clippy -- -D warnings
+cargo deny check
+trufflehog git file://. --since-commit HEAD~1 --only-verified --fail
+```
+
+**Skip options (use sparingly):**
+
+- `SKIP_GUARD=1` — bypass the entire smoke-test gate
+- `SKIP_TESTS=1` — skip the test step only
+
+---
+
+## Git Hygiene
+
+- All branches: `{type}/{issue}-{short-kebab}` — e.g. `bugfix/42-fix-login`
+- Branch from `main` (or `sandbox` when directed by the manager):
+  ```bash
+  git fetch origin main
+  git checkout -b {type}/{issue}-{kebab} origin/main
+  ```
+- Always rebase, never merge from main:
+  ```bash
+  git fetch origin main && git rebase origin/main && git push --force-with-lease
+  ```
+- **Never push to `main`** — all changes go through PRs. Carter is the only one who merges to main.
+
+---
+
+## Pull Requests
+
+Every PR must include in its body:
+
+```markdown
+## Summary
+[What this PR does]
+
+## Changes
+- [List of changes]
+
+Closes #<issue>
+
+## Test Results
+- cargo fmt ✅/❌
+- cargo clippy ✅/❌
+- cargo miri test --lib ✅/❌
+- cargo test --features integration-testing ✅/❌
+- cargo deny check ✅/❌
+- cargo llvm-cov ✅/❌ (XX%)
+- scripts/smoke-test.sh ✅/❌
+```
+
+Reply to **every** review comment thread before pushing fixes. Unreplied threads = unfinished work.
+
+---
+
+## CI Pipeline (`ci.yml`)
+
+Runs on PRs targeting `main` or `production` using self-hosted `mae-runner` ARC nodes.
+
+| Job | Purpose |
+|-----|---------|
+| `config` | Reads `configuration/base.yaml` + `configuration/test.yaml` and exports service credentials as job outputs |
+| `integrity` | fmt, coverage (`cargo llvm-cov` — same flags as `smoke-test.sh`, no `nextest`), clippy, deny, TruffleHog |
+| `integration` | Spins up Postgres, Neo4j, RabbitMQ, Redis; runs `scripts/int-test.sh --ci` |
+
+**`.ci/ci_env.toml`** configures the test runner:
+
+```toml
+coverage_threshold = 65
 engine = "nextest"
 env = [
   "MAE_TESTCONTAINERS=1",
@@ -169,393 +194,62 @@ env = [
 flags = ["--no-pager", "--features", "integration-testing", "--all-features", "--run-ignored", "all"]
 ```
 
-#### Required GitHub Secrets
-
-| Secret | Scope | Set by | Maps to |
-|---|---|---|---|
-| `CI_STAGE_SERVICE_POSTGRES_HOST` | **per-repo** | ansible k8s-bootstrap | `APP_DATABASE__HOST` → `database.host` |
-| `CI_STAGE_SERVICE_NEO4J_HOST` | **per-repo** | ansible k8s-bootstrap | `APP_GRAPHDB__HOST` → `graphdb.host` |
-| `CI_REDIS_URL` | org-global | ansible k8s-bootstrap | `APP_REDIS_URI` → `redis_uri` |
-| `CI_RABBITMQ_HOST` | org-global | ansible k8s-bootstrap | `RABBITMQ_HOST` |
-
-The per-repo secrets are provisioned by running the `ci_staging` tag of the bootstrap playbook:
-
-```bash
-ansible-playbook -i inventories/hosts.ini playbooks/k8s-bootstrap.yml \
-  -e @secrets/k8s-bootstrap.vars.yml --tags ci_staging
-```
-
-> **config-rs env var naming:** prefix `APP`, prefix_separator `_`, separator `__`.
-> `APP_DATABASE__HOST` → strips `APP_` → `database__host` → `database.host`.
-> Flat fields (no `__`): `APP_REDIS_URI` → `redis_uri`.
-
-#### Local development
-
-Running `bash scripts/int-test.sh` (no flags) automatically sets `MAE_TESTCONTAINERS=1` via `.ci/ci_env.toml`, spinning up docker containers for all services. No manual env setup needed.
-
-## Pre-Push Hook
-
-### Git Pre-Push Hook (`.git/hooks/pre-push`)
-
-This project includes a pre-push hook to enforce Rust quality checks **before any `git push`**. It runs automatically when you push commits and ensures your code passes formatting, linting, testing, Miri, and dependency checks.
-
-* **Automatic execution**: `.git/hooks/pre-push`
-* **Bypass options**:
-
-  * `SKIP_RUST_GATE=1` — skips all Rust checks globally
-  * `FAST_PUSH=1` — skips Miri tests but still runs other checks
-  * `SKIP_TEST=1` - skips all tests
-* **Requirements**: Only runs if all of these files exist in your Rust project:
-
-  * `clippy.toml`
-  * `deny.toml`
-  * `rustfmt.toml`
-  * `rust-toolchain.toml`
-
-### Behavior
-
-1. Checks formatting:
-
-```bash
-cargo fmt -- --check
-```
-
-2. Runs all tests:
-
-```bash
-cargo test
-```
-
-3. Runs Miri unless `FAST_PUSH` is set:
-
-```bash
-cargo miri test
-```
-
-4. Enforces strict linting:
-
-```bash
-cargo clippy -- -D warnings
-```
-
-6. Verifies workspace policies:
-
-```bash
-cargo deny check
-```
-
-If any check fails, the push is aborted.
+In CI, `MAE_TESTCONTAINERS` is unset by `int-test.sh --ci` **and** the `integrity` coverage step so docker-gated tests skip automatically (no docker.sock on `mae-runner` for those jobs). The integrity job uses a broader `llvm-cov --ignore-filename-regex` (excludes `testing/container/`, `testing/env`, `context.rs`, etc.) so the 65% threshold still applies to unit-testable code. Local `smoke-test.sh` uses `MAE_TESTCONTAINERS=1` + a narrower ignore regex when Docker is available.
 
 ---
 
-## Git Ignore (`.gitignore`)
+## Local Dev with Docker Compose Watch
 
-This project uses a comprehensive `.gitignore` to prevent committing unnecessary or sensitive files:
-
-```gitignore
-# Rust / Cargo
-/target/
-**/*.rs.bk
-**/*.rs.orig
-**/*.rs.tmp
-**/debug/
-**/release/
-*.rs.meta
-rust-project.json
-
-# Environment files
-.env
-.env.*
-.env.local
-.env.production
-.env.development
-
-# Docker
-docker-compose.override.yml
-Dockerfile.*
-.dockerignore
-*.dockerfile
-*.log
-*.pid
-docker-volume-*
-docker-container-*
-
-# IDEs / Editors
-.vscode/
-.idea/
-*.swp
-*.swo
-*.bak
-*.tmp
-```
-
-### Licensing (`--private <name>` or `--name <name>`)
-
-The `--private` flag allows you to generate a proprietary LICENSE file for your project. This is useful when your Rust crate or program is **not intended for public or open-source use**.
-
-The `--name` flag allows you to generate a MIT LICENSE file for your project.
-
-#### Usage
+Start the dev environment:
 
 ```bash
-# Create a LICENSE file for yourself
-sync-rust-template --private "Your Name"
-
-# Or combine with --force
-sync-rust-template --force --private "Your Name"
-
-# Set your Environment
-echo 'export RUST_OWNER="your name"' >> /.zshrc
-source /.zshrc
-
-sync-rust-template --private # --name
+docker compose up --watch
 ```
 
-#### Behavior
+The dev container runs `scripts/dev-boot.sh` → `cargo fetch` → `cargo watch` → `scripts/dev-run.sh`.
 
-* Creates a `LICENSE` file in the current directory.
-* Includes the **current year** and the **provided name**.
-* Marks the project as **all rights reserved / proprietary** or **MIT**.
-* updates `Cargo.toml` file.
-* Does **not overwrite** an existing LICENSE unless combined with `--force`.
+`dev-run.sh` runs `scripts/migrate.sh` then `cargo run`. If migrations fail, the watcher stays alive and retries on the next file change.
 
-#### Example Private LICENSE Content
+Watch targets: `src/`, `Cargo.toml`, `migrations/`, `../lib` (shared lib when mounted).
 
-```
-Copyright (c) 2026 Your Name
+**Expected cycle times:**
 
-All rights reserved.
+| Change | Time |
+|--------|------|
+| Source file | ~5–30s (incremental) |
+| `Cargo.toml` | ~5–30s (incremental) |
+| `Cargo.lock` (new dep) | ~2–5 min (image rebuild) |
 
-This software is proprietary and may not be used, copied, modified,
-or distributed without explicit permission from Your Name.
-```
+---
 
-## Getting Started
+## Syncing from Template
 
 ```bash
-# Create a new project, then:
-cargo new your-project
-cd your-project
-git init
-sync-rust-template --name <your-name>
-
-# Toolchain auto-selected via rust-toolchain.toml
-cargo build
-cargo test
+# First-time or update
+export RUST_TEMPLATE_DIR=/path/to/rust_template
+cd /path/to/my-service
+bash $RUST_TEMPLATE_DIR/sync_rust_template.sh --force --private "1000482371 ONTARIO CORPORATION"
 ```
+
+What gets synced: config files, workflow, `configuration/` YAMLs, `.ci/`, `scripts/`, pre-push hook, DEVELOPMENT.md, `[lints.clippy]`, LICENSE, mae dep bump.
+
+Use `--lib` for library crates (skips `Dockerfile.*`). Use `--skip-mae-bump` to skip the mae version bump.
+
+---
 
 ## Adding Dependencies
 
-All new dependencies must pass `cargo deny check`. Update `Cargo.toml` and run:
+All new dependencies must pass `cargo deny check`. Add exceptions with justification to `deny.exceptions.toml`.
 
-```bash
-cargo deny check
-```
+---
 
-If there are unique usecases to allow licenses from specific crates, add lines to your `./deny.exceptions.toml` file.
-#### Example:
-```toml
-exceptions = [
-{crate = "atomic-wait", allow = ["BSD-2-Clause"]},
-{crate = "unicode-ident", allow = ["MIT", "Apache-2.0", "Unicode-3.0"]}
-]
-```
-
-## Local Checks
-
-Run these commands to verify code quality locally:
-
-```bash
-cargo +nightly fmt -- --check                    # Formatting
-cargo +nightly clippy -- -D warnings              # Strict linting
-cargo +nightly miri test                          # Undefined behavior
-cargo deny check                                  # Licenses / sources / bans
-```
-
-## Syncing Template Configs & Documentation
-
-This project includes a small helper script called `sync-rust-template` that lets you easily bring in the latest configuration files, documentation standards, and CI workflow from your rust_template directory into any Rust project.
-
-What the script does
-
-When run from the root of a Rust project (must contain `Cargo.toml`), it:
-
-- Copies these config files (fails if they exist unless `--force` is used):
-  - `clippy.toml` (strict linting rules)
-  - `deny.toml` (license/vulnerability/source checks via cargo-deny)
-  - `rust-toolchain.toml` (nightly Rust + rustfmt/clippy/miri)
-  - `rustfmt.toml` (opinionated code formatting)
-
-- Copies the GitHub Actions workflow:
-  - `.github/workflows/cooked-crab.yaml`  
-    (creates the `.github/workflows/` directory if missing; skips if the file exists unless `--force` is used)
-
-- Handles `DEVELOPMENT.md`:
-  - Copies the template's `README.md` to `DEVELOPMENT.md`  
-  - Normal mode: skips if `DEVELOPMENT.md` already exists  
-  - With `--force`: overwrites `DEVELOPMENT.md` if it exists
-
-- Handles `README.md`:
-  - If missing → creates minimal version: `For development rules, see [DEVELOPMENT.md](DEVELOPMENT.md)`
-  - If exists → prepends the above link (only once, idempotent check)
-
-- Appends header to `src/lib.rs` from template (skips if header already present via content check)
-
-- licensing:
-  - Using `--private "Your Name"` generates a LICENSE file with current year and your name
-    - Marks the project as proprietary (all rights reserved)
-  - Using `--name "Your Name"` generates an MIT file with current year and your name
-  - Skips creation if LICENSE already exists unless --force is used
-
-Safety features:
-- Fails immediately if not in a Rust project (no `Cargo.toml`)
-- Pre-checks: refuses to overwrite config files without `--force`
-- Skips missing template files with clear warnings
-- Idempotent: won't duplicate headers or README links
-- `--force` also enables overwriting `DEVELOPMENT.md` and the workflow file
-
-Prerequisites
-
-1. Set the environment variable pointing to your template directory:
-
-   ```bash
-   export RUST_TEMPLATE_DIR="/path/to/your/rust_template"
-   ```
-
-   Make it permanent (add to `~/.bashrc`, `~/.zshrc`, or `~/.profile`):
-
-   ```bash
-   echo 'export RUST_TEMPLATE_DIR="/path/to/your/rust_template"' >> ~/.zshrc
-   source ~/.zshrc
-   ```
-
-2. Verify the template directory exists:
-
-   ```bash
-   ls "$RUST_TEMPLATE_DIR" # Should show clippy.toml, deny.toml, .github/workflows/cooked-crab.yaml, etc.
-   ```
-
-Installation & Setup
-
-1. Save the script to a directory in your `$PATH`:
-
-   ```bash
-   mkdir -p ~/.local/bin
-   # Save script as ~/.local/bin/sync-rust-template
-   ```
-
-2. Make executable (chmod privileges):
-
-   ```bash
-   chmod +x ~/.local/bin/sync-rust-template
-   ```
-
-   Verify:
-
-   ```bash
-   ls -l ~/.local/bin/sync-rust-template # Should show -rwxr-xr-x
-   ```
-
-3. Add script directory to PATH (if not already):
-
-   ```bash
-   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-   source ~/.zshrc
-   ```
-
-Usage
-
-From any Rust project root:
-
-```bash
-# Safe mode (fails if config files exist; skips DEVELOPMENT.md & workflow if present)
-sync-rust-template
-
-# Force mode: overwrites config files, DEVELOPMENT.md, and workflow file if they exist
-sync-rust-template --force
-# or
-sync-rust-template -f
-
-# Add a private license.
-# Use this if your project is explicitly private and should not be shared (ie - proprietary)
-sync-rust-template --private your_name
-
-# Show help
-sync-rust-template --help
-```
-
-Example workflow:
-
-```bash
-cd ~/projects/my-rust-app
-export RUST_TEMPLATE_DIR="$HOME/templates/rust_template"
-sync-rust-template --force
-
-# Check results
-ls -l clippy.toml deny.toml rust-toolchain.toml rustfmt.toml DEVELOPMENT.md
-ls -l .github/workflows/cooked-crab.yaml
-head -n 20 src/lib.rs # Should show template header
-head -n 5 README.md   # Should show DEVELOPMENT.md link
-
-# Commit
-git add clippy.toml deny.toml rust-toolchain.toml rustfmt.toml \
-       DEVELOPMENT.md README.md src/lib.rs \
-       .github/workflows/cooked-crab.yaml
-git commit -m "chore: sync rust_template configs, workflow, and development docs"
-```
-
-Expected Output (first run with --force)
-
-```
-Syncing from template: /path/to/your/rust_template
-Target directory:     /home/user/projects/my-rust-app
-(FORCE mode: will overwrite existing config files + DEVELOPMENT.md)
-
-'/path/to/your/rust_template/clippy.toml' -> './clippy.toml'
-'/path/to/your/rust_template/deny.toml' -> './deny.toml'
-'/path/to/your/rust_template/rust-toolchain.toml' -> './rust-toolchain.toml'
-'/path/to/your/rust_template/rustfmt.toml' -> './rustfmt.toml'
-'/path/to/your/rust_template/.github/workflows/cooked-crab.yaml' -> './.github/workflows/cooked-crab.yaml'
-Created workflow file: .github/workflows/cooked-crab.yaml
-'/path/to/your/rust_template/README.md' -> './DEVELOPMENT.md'
-Overwriting DEVELOPMENT.md (with --force)
-Created/Updated DEVELOPMENT.md from template README.md
-Created minimal README.md pointing to DEVELOPMENT.md
-Appended header to src/lib.rs
-
-Done:
-  • 7 new file(s) created/copied
-  • 1 file(s) overwritten (with --force)
-  • 1 file(s) updated (header or README pointer)
-```
-
-Troubleshooting
-
-- `RUST_TEMPLATE_DIR is not set` → run the export command
-- `Template directory not found` → check path with `ls "$RUST_TEMPLATE_DIR"`
-- `Permission denied` → `chmod +x sync-rust-template`
-- `command not found` → add script dir to `$PATH` and `source ~/.zshrc`
-- `Not a Rust project` → run from directory containing `Cargo.toml`
-- `Files already exist` → use `--force` flag
--  `No --private, --name, or RUST_OWNER environment variable provided.` → set the `RUST_OWNER` in your environment, use `--name <your/company name>` or use `--private <your/company name>`
-    - with `RUST_OWNER` set, `--name` defaults to `MIT` license, use `--private` for proprietary projects
-
-After Syncing
-
-Run these to verify everything works:
+## Local Checks Quick Reference
 
 ```bash
 cargo +nightly fmt -- --check
-cargo +nightly clippy -- -D warnings
+cargo +nightly clippy --all-targets --all-features -- -D warnings
+cargo +nightly miri test --lib
 cargo deny check
-cargo +nightly miri test
+bash scripts/smoke-test.sh
+MAE_TESTCONTAINERS=1 bash scripts/int-test.sh
 ```
-
-Pro tip: Add an alias to your shell for convenience:
-
-```bash
-echo 'alias rust-sync="sync-rust-template --force"' >> ~/.zshrc
-# Then just: rust-sync
-```
-
-Enjoy consistent, production-grade Rust tooling and integrity checks across all your projects! 🚀

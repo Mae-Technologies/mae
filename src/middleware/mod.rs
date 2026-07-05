@@ -15,9 +15,13 @@
 //!   request. **Note:** currently does not work at runtime (see source).
 
 mod get_context;
+mod get_microservice_session;
 mod get_service_session;
 mod get_session;
+mod scope;
+
 pub use get_context::*;
+pub use get_microservice_session::*;
 pub use get_session::*;
 
 /// Re-exports [`get_service_session`] for use in microservice route wiring.
