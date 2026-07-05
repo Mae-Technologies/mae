@@ -180,7 +180,7 @@ Runs on PRs targeting `main` or `production` using self-hosted `mae-runner` ARC 
 | Job | Purpose |
 |-----|---------|
 | `config` | Reads `configuration/base.yaml` + `configuration/test.yaml` and exports service credentials as job outputs |
-| `integrity` | Runs `scripts/smoke-test.sh` (format, clippy, coverage, deny, TruffleHog) |
+| `integrity` | fmt, coverage (`cargo llvm-cov` — same flags as `smoke-test.sh`, no `nextest`), clippy, deny, TruffleHog |
 | `integration` | Spins up Postgres, Neo4j, RabbitMQ, Redis; runs `scripts/int-test.sh --ci` |
 
 **`.ci/ci_env.toml`** configures the test runner:

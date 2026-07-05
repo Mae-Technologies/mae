@@ -183,7 +183,9 @@ jobs:
       - name: 🎨 Check formatting
         run: cargo fmt -- --check
 
-      - name: 📊 Coverage (llvm-cov + nextest)
+      - name: 📊 Coverage (llvm-cov)
+        env:
+          MAE_TESTCONTAINERS: "1"
         run: |
           set -o pipefail
           THRESHOLD=$(python3 -c "
@@ -192,7 +194,10 @@ jobs:
           print(d.get('coverage_threshold', 45))
           ")
           echo "Coverage threshold: ${THRESHOLD}%"
-          cargo +nightly llvm-cov nextest --lib --no-tests=warn --fail-under-lines "$THRESHOLD"
+          cargo +nightly llvm-cov \
+            --features integration-testing --all-features \
+            --ignore-filename-regex 'app/(app|build|run)\.rs|middleware/|testing/container/(redis|rabbitmq)\.rs' \
+            --fail-under-lines "$THRESHOLD"
 
       - name: 🔍 Clippy
         run: cargo clippy -- -D warnings
