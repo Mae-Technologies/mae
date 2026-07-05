@@ -1,1 +1,18 @@
-exceptions = []
+# cargo-deny per-crate license exceptions (auto-loaded beside deny.toml).
+# Global SPDX allow-list lives in deny.toml — add here ONLY when a specific crate
+# needs a license we deliberately do not allow workspace-wide.
+#
+# Document each entry:
+#   (1) Risk surface — obligations/exposure the license creates
+#   (2) Source — dependency chain introducing the crate
+#   (3) Rationale — why exception vs global allow / replacing the dep
+
+exceptions = [
+  # tiny-keccak v2 (CC0-1.0)
+  # (1) Risk: Public-domain dedication; no copyleft or attribution requirement in shipped binaries.
+  #     Compile-time Keccak macro only (const-random-macro); no runtime network/crypto surface.
+  # (2) Source: config → rust-ini → ordered-multimap → dlv-list → const-random → const-random-macro → tiny-keccak.
+  # (3) Rationale: Scoped exception avoids blanket CC0-1.0 in deny.toml (would permit any future CC0 crate).
+  #     Alternatives rejected: replace config (large refactor); fork tiny-keccak (ongoing maintenance).
+  { crate = "tiny-keccak", allow = ["CC0-1.0"] },
+]
