@@ -194,7 +194,7 @@ env = [
 flags = ["--no-pager", "--features", "integration-testing", "--all-features", "--run-ignored", "all"]
 ```
 
-In CI, `MAE_TESTCONTAINERS` is unset by `int-test.sh --ci` **and** the `integrity` coverage step so docker-gated tests skip automatically (no docker.sock on `mae-runner` for those jobs). Local `smoke-test.sh` still uses `MAE_TESTCONTAINERS=1` when Docker is available.
+In CI, `MAE_TESTCONTAINERS` is unset by `int-test.sh --ci` **and** the `integrity` coverage step so docker-gated tests skip automatically (no docker.sock on `mae-runner` for those jobs). The integrity job uses a broader `llvm-cov --ignore-filename-regex` (excludes `testing/container/`, `testing/env`, `context.rs`, etc.) so the 65% threshold still applies to unit-testable code. Local `smoke-test.sh` uses `MAE_TESTCONTAINERS=1` + a narrower ignore regex when Docker is available.
 
 ---
 

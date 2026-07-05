@@ -196,9 +196,13 @@ jobs:
           print(d.get('coverage_threshold', 45))
           ")
           echo "Coverage threshold: ${THRESHOLD}%"
+          # Without MAE_TESTCONTAINERS, docker-gated integration tests skip — exclude
+          # modules they alone exercise from the coverage denominator (see smoke-test.sh
+          # for the narrower regex used locally with MAE_TESTCONTAINERS=1 + Docker).
+          IGNORE_COVERAGE='app/(app|build|run)\.rs|middleware/|testing/container/|testing/context\.rs|testing/env\.rs|repo/build\.rs|route/health\.rs|/context\.rs'
           cargo +nightly llvm-cov \
             --features integration-testing --all-features \
-            --ignore-filename-regex 'app/(app|build|run)\.rs|middleware/|testing/container/(redis|rabbitmq)\.rs' \
+            --ignore-filename-regex "$IGNORE_COVERAGE" \
             --fail-under-lines "$THRESHOLD"
 
       - name: 🔍 Clippy
