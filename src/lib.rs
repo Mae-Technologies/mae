@@ -19,6 +19,8 @@
 
 pub mod app;
 pub mod context;
+pub mod crypto;
+pub mod totp;
 pub mod middleware;
 pub mod repo;
 pub mod route;

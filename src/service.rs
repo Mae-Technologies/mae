@@ -63,6 +63,7 @@ fn map_http_status_to_error(status: reqwest::StatusCode, value: Value) -> Servic
         401 => ServiceError::Unauthorized,
         404 => ServiceError::NotFound(message),
         409 => ServiceError::Conflict(message),
+        422 => ServiceError::UnprocessableEntity(message),
         _ => ServiceError::Unexpected(anyhow::anyhow!("HTTP {} - {}", status.as_u16(), message))
     }
 }
