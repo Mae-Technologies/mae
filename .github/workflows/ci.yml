@@ -185,13 +185,14 @@ jobs:
 
       - name: 📊 Coverage (llvm-cov + nextest)
         run: |
+          set -o pipefail
           THRESHOLD=$(python3 -c "
           import tomllib, pathlib
           d = tomllib.loads(pathlib.Path('.ci/ci_env.toml').read_text())
           print(d.get('coverage_threshold', 45))
           ")
           echo "Coverage threshold: ${THRESHOLD}%"
-          cargo +nightly llvm-cov nextest --lib --no-tests=warn --fail-under-lines "$THRESHOLD" 2>&1 | grep -v '^info: cargo-llvm-cov'
+          cargo +nightly llvm-cov nextest --lib --no-tests=warn --fail-under-lines "$THRESHOLD"
 
       - name: 🔍 Clippy
         run: cargo clippy -- -D warnings

@@ -1,3 +1,8 @@
+//! Per-request context: Postgres pool/transaction, session, and service-specific config.
+//!
+//! Services alias this as `type RequestContext = mae::context::RequestContext<AppContext>`
+//! and inject it via `mae::middleware` extractors installed by `#[run_app]`.
+
 use crate::session::Session;
 use actix_web::web::{Data, ReqData};
 use actix_web::{
