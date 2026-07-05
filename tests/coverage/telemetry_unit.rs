@@ -4,7 +4,7 @@ use mae::testing::must::must_eq;
 #[test]
 fn get_subscriber_builds_without_panicking() {
     let _subscriber =
-        get_subscriber("mae-coverage".to_string(), "info".to_string(), || std::io::sink());
+        get_subscriber("mae-coverage".to_string(), "info".to_string(), std::io::sink);
 }
 
 #[tokio::test]

@@ -99,6 +99,13 @@ dotenvy = "0.15.7"
 url = "2.5.8"
 shellexpand = "3.1.1"
 
+# coverage_tests imports mae::testing::must (test-utils). Without this gate,
+# `cargo test` (Concourse mae-unit) tries to build the binary without test-utils.
+[[test]]
+name = "coverage_tests"
+path = "tests/coverage_tests.rs"
+required-features = ["test-utils"]
+
 [lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
