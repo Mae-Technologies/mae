@@ -5,7 +5,6 @@
 //! `data` field and maps HTTP status codes back into [`Success`] / [`ServiceError`].
 
 use crate::route::response::{ServiceError, ServiceResult, Success};
-use anyhow::Context;
 use reqwest::{Client, header};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -93,6 +92,23 @@ where
         .map_err(|e| ServiceError::Unexpected(anyhow::anyhow!("deserialize failed: {e}")))
 }
 
+fn parse_response_body(status: reqwest::StatusCode, body: &str) -> Result<Value, ServiceError> {
+    if body.trim().is_empty() {
+        if status.is_success() {
+            return Err(ServiceError::Unexpected(anyhow::anyhow!("parse failed: empty body")));
+        }
+        return Ok(Value::Null);
+    }
+
+    match serde_json::from_str::<Value>(body) {
+        Ok(value) => Ok(value),
+        Err(error) if status.is_success() => {
+            Err(ServiceError::Unexpected(anyhow::anyhow!("parse failed: {error}")))
+        }
+        Err(_) => Ok(Value::Null)
+    }
+}
+
 impl HttpServiceClient {
     pub fn new(config: ServiceClientConfig) -> Self {
         Self {
@@ -135,7 +151,10 @@ impl HttpServiceClient {
         R: DeserializeOwned + Serialize
     {
         let status = response.status();
-        let value = response.json::<Value>().await.context("parse failed")?;
+        let body = response.text().await.map_err(|error| {
+            ServiceError::Unexpected(anyhow::anyhow!("read body failed: {error}"))
+        })?;
+        let value = parse_response_body(status, &body)?;
 
         if status.is_success() {
             map_http_status_to_success(status, deserialize_response(value)?)
@@ -264,6 +283,28 @@ mod tests {
             serde_json::json!({"error": "trial"})
         );
         assert!(matches!(err, ServiceError::UnprocessableEntity(_)));
+    }
+
+    #[test]
+    fn parse_response_body_maps_empty_error_body_to_null() {
+        let value = parse_response_body(ReqStatus::NOT_FOUND, "").expect("null body");
+        assert!(value.is_null());
+
+        let err = parse_response_body(ReqStatus::OK, "").expect_err("empty success body");
+        assert!(matches!(err, ServiceError::Unexpected(_)));
+    }
+
+    #[test]
+    fn parse_response_body_maps_empty_404_to_not_found() {
+        let value = parse_response_body(ReqStatus::NOT_FOUND, "").expect("null body");
+        let err = map_http_status_to_error(ReqStatus::NOT_FOUND, value);
+        assert!(matches!(err, ServiceError::NotFound(_)));
+    }
+
+    #[test]
+    fn parse_response_body_maps_invalid_error_body_to_null() {
+        let value = parse_response_body(ReqStatus::NOT_FOUND, "not json").expect("null body");
+        assert!(value.is_null());
     }
 
     #[test]
