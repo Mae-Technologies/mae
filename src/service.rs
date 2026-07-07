@@ -60,9 +60,10 @@ fn map_http_status_to_error(status: reqwest::StatusCode, value: Value) -> Servic
     match status.as_u16() {
         400 => ServiceError::BadRequest(message),
         401 => ServiceError::Unauthorized,
-        404 => ServiceError::NotFound(message),
+        404 => ServiceError::BadGateway(format!("downstream not found: {message}")),
         409 => ServiceError::Conflict(message),
         422 => ServiceError::UnprocessableEntity(message),
+        502 | 503 => ServiceError::BadGateway(format!("downstream unavailable: {message}")),
         _ => ServiceError::Unexpected(anyhow::anyhow!("HTTP {} - {}", status.as_u16(), message))
     }
 }
@@ -95,7 +96,7 @@ where
 fn parse_response_body(status: reqwest::StatusCode, body: &str) -> Result<Value, ServiceError> {
     if body.trim().is_empty() {
         if status.is_success() {
-            return Err(ServiceError::Unexpected(anyhow::anyhow!("parse failed: empty body")));
+            return Err(ServiceError::BadGateway("downstream returned empty success body".into()));
         }
         return Ok(Value::Null);
     }
@@ -103,7 +104,7 @@ fn parse_response_body(status: reqwest::StatusCode, body: &str) -> Result<Value,
     match serde_json::from_str::<Value>(body) {
         Ok(value) => Ok(value),
         Err(error) if status.is_success() => {
-            Err(ServiceError::Unexpected(anyhow::anyhow!("parse failed: {error}")))
+            Err(ServiceError::BadGateway(format!("downstream response parse failed: {error}")))
         }
         Err(_) => Ok(Value::Null)
     }
@@ -278,6 +279,9 @@ mod tests {
         let err = map_http_status_to_error(ReqStatus::UNAUTHORIZED, serde_json::json!({}));
         assert!(matches!(err, ServiceError::Unauthorized));
 
+        let err = map_http_status_to_error(ReqStatus::NOT_FOUND, serde_json::json!({"error": "x"}));
+        assert!(matches!(err, ServiceError::BadGateway(_)));
+
         let err = map_http_status_to_error(
             ReqStatus::UNPROCESSABLE_ENTITY,
             serde_json::json!({"error": "trial"})
@@ -291,14 +295,14 @@ mod tests {
         assert!(value.is_null());
 
         let err = parse_response_body(ReqStatus::OK, "").expect_err("empty success body");
-        assert!(matches!(err, ServiceError::Unexpected(_)));
+        assert!(matches!(err, ServiceError::BadGateway(_)));
     }
 
     #[test]
-    fn parse_response_body_maps_empty_404_to_not_found() {
+    fn parse_response_body_maps_empty_404_to_bad_gateway() {
         let value = parse_response_body(ReqStatus::NOT_FOUND, "").expect("null body");
         let err = map_http_status_to_error(ReqStatus::NOT_FOUND, value);
-        assert!(matches!(err, ServiceError::NotFound(_)));
+        assert!(matches!(err, ServiceError::BadGateway(_)));
     }
 
     #[test]

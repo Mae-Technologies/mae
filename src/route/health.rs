@@ -11,6 +11,7 @@
 //! | `GET /health` | Liveness — always 200 | `{"status":"ok"}` | — |
 //! | `GET /health-pg` | Postgres readiness | `{"status":"ok","db":"postgres"}` | 503 |
 //! | `GET /health-neo` | Neo4j readiness | `{"status":"ok","db":"neo4j"}` | 503 |
+//! | `GET /version` | Build metadata | `{"service","git_sha","mae_version","image_tag"}` | — |
 
 use actix_web::{HttpResponse, get, web};
 use sqlx::PgPool;

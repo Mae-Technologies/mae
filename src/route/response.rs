@@ -62,7 +62,10 @@ pub enum ServiceError {
     Conflict(String),
 
     #[error("{0}")]
-    UnprocessableEntity(String)
+    UnprocessableEntity(String),
+
+    #[error("{0}")]
+    BadGateway(String)
 }
 
 impl std::fmt::Debug for ServiceError {
@@ -79,7 +82,8 @@ impl actix_web::ResponseError for ServiceError {
             ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
             ServiceError::NotFound(_) => StatusCode::NOT_FOUND,
             ServiceError::Conflict(_) => StatusCode::CONFLICT,
-            ServiceError::UnprocessableEntity(_) => StatusCode::UNPROCESSABLE_ENTITY
+            ServiceError::UnprocessableEntity(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            ServiceError::BadGateway(_) => StatusCode::BAD_GATEWAY
         }
     }
 

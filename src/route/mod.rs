@@ -4,5 +4,6 @@ pub use actix_web::{HttpRequest, delete, get, post, put, route, web};
 
 pub mod health;
 mod model;
+pub mod version;
 pub use model::*;
 pub mod response;
