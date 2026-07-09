@@ -8,6 +8,7 @@
 //! - [`app`] — configuration, `DeriveContext`, Actix server `run`
 //! - [`context`] — [`RequestContext`] (pool + session + custom config per request)
 //! - [`repo`] — typed Postgres layer: [`WithExecutor`](repo::WithExecutor), filters, [`DomainStatus`](repo::default::DomainStatus)
+//! - [`posting`] — multi-step post orchestration ([`PostingController`](posting::PostingController))
 //! - [`route`] — [`Success`](route::response::Success), [`ServiceError`](route::response::ServiceError), health routes
 //! - [`middleware`] — session / micro-service auth (installed by `#[run_app]`)
 //! - [`session`] — logged-in user identity
@@ -28,6 +29,7 @@ pub mod app;
 pub mod context;
 pub mod crypto;
 pub mod middleware;
+pub mod posting;
 pub mod repo;
 pub mod route;
 pub mod service;

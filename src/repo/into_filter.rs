@@ -8,10 +8,61 @@ use super::map_util::Filter;
 /// `From<UpdateRow> for Vec<FilterOp<Field>>` impls produced by
 /// `#[derive(MaeRepo)]` rely on this trait to pick the correct
 /// [`Filter`] variant for each field type.
+///
+/// # Service enums (e.g. `posting_status`)
+///
+/// Implement [`MaeEnumLabel`] on the enum; [`IntoMaeFilter`] is provided
+/// automatically (including `Option<YourEnum>`).
 pub trait IntoMaeFilter {
     /// Convert `self` into a [`Filter`] using an equality /
     /// string-equality condition appropriate for the value's type.
     fn into_mae_filter(self) -> Filter;
+}
+
+/// Label bridge for service-defined enums used as filterable PG columns.
+///
+/// ```ignore
+/// impl MaeEnumLabel for PostingStatus {
+///     fn mae_enum_label(&self) -> &'static str {
+///         match self {
+///             Self::Active => "active",
+///             Self::Reversed => "reversed",
+///             Self::Reversal => "reversal",
+///         }
+///     }
+///     fn mae_pg_type() -> Option<&'static str> {
+///         Some("posting_status")
+///     }
+/// }
+/// ```
+pub trait MaeEnumLabel {
+    /// Stored / bound label (typically lowercase enum variant).
+    fn mae_enum_label(&self) -> &'static str;
+
+    /// When `Some`, filter uses [`Filter::PgEnumCast`] with this type name.
+    /// When `None`, filter uses plain [`Filter::StringIs`].
+    fn mae_pg_type() -> Option<&'static str> {
+        None
+    }
+}
+
+impl<T: MaeEnumLabel> IntoMaeFilter for T {
+    fn into_mae_filter(self) -> Filter {
+        let label = self.mae_enum_label().to_string();
+        match T::mae_pg_type() {
+            Some(ty) => Filter::PgEnumCast(label, ty),
+            None => Filter::StringIs(label)
+        }
+    }
+}
+
+impl<T: MaeEnumLabel> IntoMaeFilter for Option<T> {
+    fn into_mae_filter(self) -> Filter {
+        match self {
+            Some(v) => v.into_mae_filter(),
+            None => Filter::IsNull
+        }
+    }
 }
 
 impl IntoMaeFilter for i32 {
@@ -216,6 +267,40 @@ mod tests {
             Filter::StringIs(v) => must_eq(v.as_str(), "active"),
             other => panic!("unexpected filter: {other:?}")
         }
+    }
+
+    #[derive(Clone, Copy)]
+    enum SamplePostingStatus {
+        Reversed
+    }
+
+    impl MaeEnumLabel for SamplePostingStatus {
+        fn mae_enum_label(&self) -> &'static str {
+            match self {
+                Self::Reversed => "reversed"
+            }
+        }
+
+        fn mae_pg_type() -> Option<&'static str> {
+            Some("posting_status")
+        }
+    }
+
+    #[test]
+    fn custom_enum_label_uses_pg_enum_cast() {
+        match SamplePostingStatus::Reversed.into_mae_filter() {
+            Filter::PgEnumCast(label, ty) => {
+                must_eq(label.as_str(), "reversed");
+                must_eq(ty, "posting_status");
+            }
+            other => panic!("unexpected filter: {other:?}")
+        }
+    }
+
+    #[test]
+    fn option_custom_enum_none_is_null() {
+        let none: Option<SamplePostingStatus> = None;
+        assert!(matches!(none.into_mae_filter(), Filter::IsNull));
     }
 
     #[test]
