@@ -58,10 +58,23 @@ pub fn session_middleware(
     .build()
 }
 
+/// CORS middleware for Mae FE-facing services (primarily `ru_api_service`).
+///
+/// # Custom HTTP methods
+/// [`Cors::allow_any_method`] only allows the **standard** verb set (GET/POST/…).
+/// Mae list endpoints use the custom **`QUERY`** method (JSON body + filters).
+/// Browsers preflight that with `Access-Control-Request-Method: QUERY`; if
+/// `QUERY` is missing from `Access-Control-Allow-Methods`, preflight fails with
+/// `400 Requested method is not allowed` and the SPA surfaces a CORS error.
+///
+/// We therefore seed standard methods via `allow_any_method` and **insert** `QUERY`.
 pub fn cors_middleware(allowed_origin: String) -> Cors {
     Cors::default()
         .allowed_origin(&allowed_origin)
+        // Standard verbs only (actix-cors misnomer — does not include custom methods).
         .allow_any_method()
+        // Mae list endpoints use custom QUERY (JSON body); browsers preflight it.
+        .allowed_methods(["QUERY"])
         .allow_any_header()
         .supports_credentials()
 }
