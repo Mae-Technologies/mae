@@ -11,15 +11,14 @@
 //! - `PatchField` — used with `patch` (enum; each variant holds one field value)
 //! - `Field` — used for SELECT projections and WHERE filters
 //!
-//! `KeyAuths::keys` receives the request context. This fixture returns no
-//! predicate because `repoexample` is not a tenant. A production repo reads
-//! `ctx.sys_clients()` and returns `sys_client_key(Field::sys_client, ...)`,
-//! which is `FilterOp::Begin(Field::sys_client, Filter::Equals(id))`.
+//! `KeyAuths::keys` is required. This fixture keys `sys_client` to `1, 2, 3`.
+//! A production repo passes the request's companies instead of a fixed list:
+//! `sys_client_key(Field::sys_client, ctx.sys_clients().as_deref())`.
 
 use crate::common::context::Ctx;
 use mae::repo::default::DomainStatus;
 use mae::repo::filter::{Filter, FilterOp};
-use mae::repo::implement::{KeyAuths, ToField};
+use mae::repo::implement::KeyAuths;
 use mae::repo::macros::schema;
 pub use serde_json::Map;
 pub use sqlx::types::JsonValue as SqlxJson;
@@ -35,11 +34,9 @@ pub struct RepoExample {
     pub string_value: String
 }
 
-impl<F: ToField> KeyAuths<F> for RepoExample {
-    fn keys<C: mae::context::ContextAccessor>(_ctx: &C) -> Vec<FilterOp<F>> {
-        // No tenant on this fixture. Production staff rows use
-        // `sys_client_key(Field::sys_client, ctx.sys_clients().as_deref())`.
-        Vec::<FilterOp<F>>::new()
+impl KeyAuths<Field> for RepoExample {
+    fn keys<C: mae::context::ContextAccessor>(_ctx: &C) -> Vec<FilterOp<Field>> {
+        mae::repo::filter::sys_client_key(Field::sys_client, Some(&[1, 2, 3]))
     }
 }
 
