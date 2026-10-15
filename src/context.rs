@@ -18,7 +18,7 @@ use sqlx::{PgPool, PgTransaction};
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
 
 #[derive(Clone)]
@@ -28,7 +28,7 @@ pub struct RequestContext<T: Clone> {
     pub custom: Arc<T>,
     /// Copied from the middleware extension when the context is built.
     /// There is no setter. Replacing `pg_context` does not clear this.
-    grants: Arc<StdMutex<Option<Grants>>>
+    grants: Option<Grants>
 }
 
 impl<T: Clone> RequestContext<T> {
@@ -37,13 +37,12 @@ impl<T: Clone> RequestContext<T> {
         session: ReqData<Session>,
         custom: Data<T>
     ) -> Result<Self> {
-        let pg_context = Arc::new(PgContext::new(db_pool.into_inner())?);
-        Ok(RequestContext {
-            pg_context,
-            session: Arc::new(session.into_inner()),
-            custom: custom.into_inner(),
-            grants: Arc::new(StdMutex::new(None))
-        })
+        Self::with_snapshot(
+            db_pool.into_inner(),
+            Arc::new(session.into_inner()),
+            custom.into_inner(),
+            None
+        )
     }
     pub async fn new(db_pool: Arc<PgPool>, session: Arc<Session>, custom: Arc<T>) -> Result<Self> {
         Self::with_snapshot(db_pool, session, custom, None)
@@ -58,7 +57,7 @@ impl<T: Clone> RequestContext<T> {
         grants: Option<Grants>
     ) -> Result<Self> {
         let pg_context = Arc::new(PgContext::new(db_pool)?);
-        Ok(RequestContext { pg_context, session, custom, grants: Arc::new(StdMutex::new(grants)) })
+        Ok(RequestContext { pg_context, session, custom, grants })
     }
 }
 impl<T> FromRequest for RequestContext<T>
@@ -90,20 +89,10 @@ where
             }
         };
 
-        let pg_ctx = match PgContext::new(db_pool) {
-            Ok(pg_ctx) => pg_ctx,
-            Err(e) => return ready(Err(ErrorInternalServerError(e)))
-        };
         let grants = req.extensions().get::<RequestGrants>().map(|incoming| incoming.0.clone());
-
-        let ctx = RequestContext {
-            pg_context: Arc::new(pg_ctx),
-            session,
-            custom,
-            grants: Arc::new(StdMutex::new(grants))
-        };
-
-        ready(Ok(ctx))
+        ready(
+            Self::with_snapshot(db_pool, session, custom, grants).map_err(ErrorInternalServerError)
+        )
     }
 }
 
@@ -202,11 +191,7 @@ impl<C: Clone> ContextAccessor for RequestContext<C> {
     }
 
     fn sys_clients(&self) -> Option<Vec<i32>> {
-        self.grants
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
-            .as_ref()
-            .and_then(|grants| grants.sys_clients())
+        self.grants.as_ref().and_then(Grants::sys_clients)
     }
 }
 

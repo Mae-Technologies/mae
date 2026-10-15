@@ -7,6 +7,8 @@
 //!
 //! - [`app`] — configuration, `DeriveContext`, Actix server `run`
 //! - [`context`] — [`RequestContext`] (pool + session + custom config per request)
+//! - [`grants`] — row grants in Redis. [`GrantWriter`](grants::GrantWriter) at login,
+//!   read-only [`GrantStore`](grants::GrantStore) on the request
 //! - [`repo`] — typed Postgres layer: [`WithExecutor`](repo::WithExecutor), filters, [`DomainStatus`](repo::default::DomainStatus)
 //! - [`posting`] — multi-step post orchestration ([`PostingController`](posting::PostingController))
 //! - [`route`] — [`Success`](route::response::Success), [`ServiceError`](route::response::ServiceError), health routes
