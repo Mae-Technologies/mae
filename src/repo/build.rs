@@ -83,8 +83,8 @@ pub trait Build<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPat
 /// Provides the row-level authorization key filters for a domain type.
 ///
 /// `select`, `update`, and `patch` pass their `&ctx` into [`Build::build`], which
-/// calls `keys` at that moment. Read the grant from that argument
-/// ([`crate::context::ContextAccessor::sys_clients`]). It is not stored on
+/// calls `keys` at that moment. Read the grant from `ctx.session().1`
+/// ([`crate::grants::Grants::sys_clients`]). It is not stored on
 /// [`crate::context::PgContext`]. INSERT ignores the predicate. The default is
 /// no predicate. A repo that has a `sys_client` column overrides this and returns
 /// [`super::map_util::sys_client_key`].
@@ -240,10 +240,6 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
 
     fn session(&self) -> &Session {
         self.ctx.session()
-    }
-
-    fn sys_clients(&self) -> Option<Vec<i32>> {
-        self.ctx.sys_clients()
     }
 }
 

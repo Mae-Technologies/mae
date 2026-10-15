@@ -2,9 +2,10 @@
 //!
 //! [`GrantWriter`] writes the snapshot at login and whenever roles change.
 //! Request middleware holds a [`GrantStore`], which can only read. It copies
-//! the snapshot onto the request. Handlers cannot replace that copy, and they
-//! cannot write Redis through the store. Allow-lists stay off the wire. A
-//! later collection (operations, projects) is another field on this document.
+//! the snapshot onto [`crate::session::Session`] (the second field). There is
+//! no setter. Handlers cannot write Redis through the store. Allow-lists stay
+//! off the wire. A later collection (operations, projects) is another field
+//! on this document.
 //!
 //! `sys_client: null` is unrestricted. `sys_client: []` matches nobody.
 
@@ -23,9 +24,8 @@ pub const DEFAULT_TTL: Duration = Duration::from_secs(8 * 60 * 60 + 30 * 60);
 /// `#[serde(default)]` so an older snapshot still parses.
 ///
 /// The field is private. [`Grants::new`] is the only way to build one.
-/// [`Grants::sys_clients`] reads it. [`crate::repo::build::KeyAuths`] turns
-/// that list into the predicate for its own table. The Redis name does not
-/// have to be the table or the column.
+/// [`Grants::sys_clients`] reads it. A repo key reads this through
+/// `ctx.session().1`. The Redis name does not have to be the table or the column.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Grants {
     sys_client: Option<Vec<i32>>
@@ -52,12 +52,6 @@ impl Grants {
         self.sys_client.clone()
     }
 }
-
-/// Snapshot the microservice middleware places on the request.
-/// Absent means the caller has no end user. Crate-private so a handler or a
-/// downstream middleware cannot forge a wider snapshot.
-#[derive(Clone, Debug)]
-pub(crate) struct RequestGrants(pub(crate) Grants);
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum GrantsError {

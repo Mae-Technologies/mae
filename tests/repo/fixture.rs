@@ -35,7 +35,10 @@ pub struct RepoExample {
 
 impl KeyAuths<Field> for RepoExample {
     fn keys<C: mae::context::ContextAccessor>(ctx: &C) -> Vec<FilterOp<Field>> {
-        mae::repo::filter::sys_client_key(Field::sys_client, ctx.sys_clients().as_deref())
+        mae::repo::filter::sys_client_key(
+            Field::sys_client,
+            ctx.session().1.sys_clients().as_deref()
+        )
     }
 }
 

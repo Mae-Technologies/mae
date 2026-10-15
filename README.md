@@ -147,7 +147,7 @@ The hop carries the session user and the service credential. It does not carry c
 
 ## Row grants
 
-Limits live in Redis at `statbook:grants:{user_id}`, not on the request and not on `PgContext`. The API writes the snapshot with `GrantWriter` at login and on every role change. A downstream service keeps a read-only `GrantStore` and returns it from `MicroserviceAuth::grant_store`. `get_microservice_session` copies the snapshot onto the request. There is no setter, and `GrantStore` cannot write Redis.
+Limits live in Redis at `statbook:grants:{user_id}`, not on the wire and not on `PgContext`. The API writes the snapshot with `GrantWriter` at login and on every role change. A downstream service keeps a read-only `GrantStore` and returns it from `MicroserviceAuth::grant_store`. `get_microservice_session` copies the snapshot onto `Session`: `.0` is the user id and `.1` is `Grants`. There is no setter, and `GrantStore` cannot write Redis.
 
 ```rust
 use mae::grants::{GrantWriter, Grants};
@@ -167,7 +167,7 @@ use mae::repo::implement::KeyAuths;
 
 impl KeyAuths<Field> for StaffContractor {
     fn keys<C: ContextAccessor>(ctx: &C) -> Vec<FilterOp<Field>> {
-        sys_client_key(Field::sys_client, ctx.sys_clients().as_deref())
+        sys_client_key(Field::sys_client, ctx.session().1.sys_clients().as_deref())
     }
 }
 ```

@@ -61,7 +61,7 @@ impl MicroserviceAuth for AppCtx {
 }
 
 async fn listed_companies(ctx: RequestContext<AppCtx>) -> actix_web::HttpResponse {
-    actix_web::HttpResponse::Ok().json(ctx.sys_clients())
+    actix_web::HttpResponse::Ok().json(ctx.session().1.sys_clients())
 }
 
 async fn stored_snapshot(url: &str, user_id: i32) -> Result<Option<String>> {

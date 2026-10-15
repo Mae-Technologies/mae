@@ -3,7 +3,6 @@
 //! Services alias this as `type RequestContext = mae::context::RequestContext<AppContext>`
 //! and inject it via `mae::middleware` extractors installed by `#[run_app]`.
 
-use crate::grants::{Grants, RequestGrants};
 use crate::session::Session;
 use actix_web::web::{Data, ReqData};
 use actix_web::{
@@ -25,10 +24,7 @@ use tokio::sync::{Mutex, MutexGuard};
 pub struct RequestContext<T: Clone> {
     pub pg_context: Arc<PgContext>,
     pub session: Arc<Session>,
-    pub custom: Arc<T>,
-    /// Copied from the middleware extension when the context is built.
-    /// There is no setter. Replacing `pg_context` does not clear this.
-    grants: Option<Grants>
+    pub custom: Arc<T>
 }
 
 impl<T: Clone> RequestContext<T> {
@@ -37,27 +33,15 @@ impl<T: Clone> RequestContext<T> {
         session: ReqData<Session>,
         custom: Data<T>
     ) -> Result<Self> {
-        Self::with_snapshot(
-            db_pool.into_inner(),
-            Arc::new(session.into_inner()),
-            custom.into_inner(),
-            None
-        )
+        Self::assemble(db_pool.into_inner(), Arc::new(session.into_inner()), custom.into_inner())
     }
     pub async fn new(db_pool: Arc<PgPool>, session: Arc<Session>, custom: Arc<T>) -> Result<Self> {
-        Self::with_snapshot(db_pool, session, custom, None)
+        Self::assemble(db_pool, session, custom)
     }
 
-    /// Same as [`new`](Self::new), with the snapshot middleware would have copied.
-    /// Crate-private. Tests reach it through `mae::testing`. There is no setter.
-    pub(crate) fn with_snapshot(
-        db_pool: Arc<PgPool>,
-        session: Arc<Session>,
-        custom: Arc<T>,
-        grants: Option<Grants>
-    ) -> Result<Self> {
+    fn assemble(db_pool: Arc<PgPool>, session: Arc<Session>, custom: Arc<T>) -> Result<Self> {
         let pg_context = Arc::new(PgContext::new(db_pool)?);
-        Ok(RequestContext { pg_context, session, custom, grants })
+        Ok(RequestContext { pg_context, session, custom })
     }
 }
 impl<T> FromRequest for RequestContext<T>
@@ -89,16 +73,12 @@ where
             }
         };
 
-        let grants = req.extensions().get::<RequestGrants>().map(|incoming| incoming.0.clone());
-        ready(
-            Self::with_snapshot(db_pool, session, custom, grants).map_err(ErrorInternalServerError)
-        )
+        ready(Self::assemble(db_pool, session, custom).map_err(ErrorInternalServerError))
     }
 }
 
 /// Pool and transaction for one request.
-/// Company grants are not stored here. `select`, `update`, and `patch` receive
-/// `&ctx` and read the snapshot from that argument.
+/// Company grants live on [`Session`](crate::session::Session), not here.
 #[derive(Clone)]
 pub struct PgContext {
     pub tx: Arc<Mutex<Option<PgTransaction<'static>>>>,
@@ -173,12 +153,6 @@ pub trait ContextAccessor {
     fn session_user(&self) -> Option<i32> {
         self.session().0
     }
-
-    /// `None`: no company predicate. `Some`: companies on the signed-in user's
-    /// `sys_client` role. An empty list matches no rows.
-    fn sys_clients(&self) -> Option<Vec<i32>> {
-        None
-    }
 }
 
 impl<C: Clone> ContextAccessor for RequestContext<C> {
@@ -189,17 +163,13 @@ impl<C: Clone> ContextAccessor for RequestContext<C> {
     fn session(&self) -> &Session {
         &self.session
     }
-
-    fn sys_clients(&self) -> Option<Vec<i32>> {
-        self.grants.as_ref().and_then(Grants::sys_clients)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::RequestContext;
     use crate::context::ContextAccessor;
-    use crate::grants::{Grants, RequestGrants};
+    use crate::grants::Grants;
     use crate::session::Session;
     use crate::testing::must::{MustExpect, must_be_true, must_eq};
     use actix_web::FromRequest;
@@ -208,33 +178,34 @@ mod tests {
     use actix_web::web::Data;
     use std::sync::Arc;
 
-    async fn companies_from(grants: Option<Grants>) -> Option<Vec<i32>> {
+    async fn companies_from(grants: Grants) -> Option<Vec<i32>> {
         let pool = sqlx::PgPool::connect_lazy("postgres://fake:fake@127.0.0.1:9/fake")
             .must_expect("lazy pool");
         let srv =
             TestRequest::get().app_data(Data::new(pool)).app_data(Data::new(())).to_srv_request();
-        srv.extensions_mut().insert(Session(Some(7)));
-        if let Some(grants) = grants {
-            srv.extensions_mut().insert(RequestGrants(grants));
-        }
+        srv.extensions_mut().insert(Session(Some(7), grants));
         let (req, _payload) = srv.into_parts();
         let ctx = RequestContext::<()>::extract(&req).await.must_expect("ctx");
-        ctx.sys_clients()
+        must_eq(ctx.session().0, Some(7));
+        ctx.session().1.sys_clients()
     }
 
-    /// The snapshot is whatever middleware put on the request. `new` has none.
+    /// The snapshot is the second field of the session middleware inserted.
     #[tokio::test]
-    async fn request_context_reads_the_middleware_snapshot() {
-        must_be_true(companies_from(None).await.is_none());
-        must_be_true(companies_from(Some(Grants::open())).await.is_none());
-        must_eq(companies_from(Some(Grants::companies(vec![4, 3, 3]))).await, Some(vec![3, 4]));
-        must_eq(companies_from(Some(Grants::companies(vec![]))).await, Some(vec![]));
+    async fn request_context_reads_the_session_grants() {
+        must_be_true(companies_from(Grants::open()).await.is_none());
+        must_eq(companies_from(Grants::companies(vec![4, 3, 3])).await, Some(vec![3, 4]));
+        must_eq(companies_from(Grants::companies(vec![])).await, Some(vec![]));
 
         let pool = sqlx::PgPool::connect_lazy("postgres://fake:fake@127.0.0.1:9/fake")
             .must_expect("lazy pool");
-        let built = RequestContext::new(Arc::new(pool), Arc::new(Session(None)), Arc::new(()))
-            .await
-            .must_expect("new");
-        must_be_true(built.sys_clients().is_none());
+        let built = RequestContext::new(
+            Arc::new(pool),
+            Arc::new(Session(None, Grants::companies(vec![9]))),
+            Arc::new(())
+        )
+        .await
+        .must_expect("new");
+        must_eq(built.session().1.sys_clients(), Some(vec![9]));
     }
 }

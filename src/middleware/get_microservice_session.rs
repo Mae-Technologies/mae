@@ -4,11 +4,11 @@
 //! [`HttpServiceClient`](crate::service::HttpServiceClient)) and injects
 //! [`Session`](crate::session::Session) from the `X-Session-User` header.
 //! When that user id is present, the grant snapshot is loaded from Redis
-//! through [`MicroserviceAuth::grant_store`] and placed on the request.
-//! That is the only write onto the request. The store itself cannot edit Redis.
-//! Allow-lists are not headers.
+//! through [`MicroserviceAuth::grant_store`] and stored on the [`Session`]
+//! (the second field). That is the only write onto the request. The store
+//! itself cannot edit Redis. Allow-lists are not headers.
 
-use crate::grants::{GrantDecision, GrantStore, GrantsError, RequestGrants, resolve_grants};
+use crate::grants::{GrantDecision, GrantStore, Grants, GrantsError, resolve_grants};
 use crate::session::Session;
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
@@ -67,25 +67,28 @@ where
     let store = req.app_data::<web::Data<T>>().and_then(|ctx| ctx.grant_store().cloned());
 
     if pass_ok {
-        req.extensions_mut().insert(Session(user_id));
-        if let Some(id) = user_id {
-            let loaded = match &store {
-                Some(store) => store.get(id).await,
-                None => {
-                    tracing::warn!(user_id = id, "grant store is not configured");
-                    Err(GrantsError::Unavailable)
-                }
-            };
-            match resolve_grants(Some(id), loaded) {
-                GrantDecision::Apply(grants) => {
-                    req.extensions_mut().insert(RequestGrants(grants));
-                }
-                GrantDecision::Unavailable => return Err(reject(StatusCode::SERVICE_UNAVAILABLE)),
-                GrantDecision::Open | GrantDecision::Deny => {
-                    return Err(reject(StatusCode::UNAUTHORIZED));
+        let grants = match user_id {
+            None => Grants::open(),
+            Some(id) => {
+                let loaded = match &store {
+                    Some(store) => store.get(id).await,
+                    None => {
+                        tracing::warn!(user_id = id, "grant store is not configured");
+                        Err(GrantsError::Unavailable)
+                    }
+                };
+                match resolve_grants(Some(id), loaded) {
+                    GrantDecision::Apply(grants) => grants,
+                    GrantDecision::Unavailable => {
+                        return Err(reject(StatusCode::SERVICE_UNAVAILABLE));
+                    }
+                    GrantDecision::Open | GrantDecision::Deny => {
+                        return Err(reject(StatusCode::UNAUTHORIZED));
+                    }
                 }
             }
-        }
+        };
+        req.extensions_mut().insert(Session(user_id, grants));
         return next.call(req).await;
     }
 

@@ -46,7 +46,7 @@ pub async fn get_context<C: Default + Clone>() -> Result<RequestContext<TestCont
     build_context(None).await
 }
 
-/// Build a [`Ctx<C>`] with the snapshot middleware would have copied onto the request.
+/// Build a [`Ctx<C>`] with the snapshot middleware would have put on the session.
 /// `None` is unrestricted. [`crate::grants::Grants::companies`] limits the repo key.
 pub async fn get_context_with_grants<C: Default + Clone>(
     grants: Option<crate::grants::Grants>
@@ -59,11 +59,12 @@ async fn build_context<C: Default + Clone>(
 ) -> Result<RequestContext<TestContext<C>>> {
     let base_pool = postgres::shared_pool().await?.clone();
     let pool = Arc::new(base_pool.clone());
-    let session = Arc::new(Session(Some(1)));
-    RequestContext::<TestContext<C>>::with_snapshot(
+    let grants = grants.unwrap_or_else(crate::grants::Grants::open);
+    let session = Arc::new(Session(Some(1), grants));
+    RequestContext::<TestContext<C>>::new(
         pool,
         session,
-        Arc::new(TestContext { inner: C::default(), pool: base_pool }),
-        grants
+        Arc::new(TestContext { inner: C::default(), pool: base_pool })
     )
+    .await
 }
