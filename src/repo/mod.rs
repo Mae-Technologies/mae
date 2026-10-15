@@ -47,7 +47,7 @@ pub mod prelude {
 pub mod filter {
     use super::*;
     pub use into_filter::{IntoMaeFilter, MaeEnumLabel};
-    pub use map_util::{Filter, FilterOp};
+    pub use map_util::{Filter, FilterOp, sys_client_key};
 }
 
 pub mod implement {

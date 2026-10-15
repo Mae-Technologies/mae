@@ -33,7 +33,9 @@ use std::marker::PhantomData;
 use crate::context::{ContextAccessor, PgContext};
 use crate::repo::filter::Filter;
 
-use super::map_util::{BindArgs, FilterOp, SqlStatement, concat_sql_parts, sql_where};
+use super::map_util::{
+    BindArgs, FilterOp, SqlStatement, concat_sql_parts, extend_filters, sql_where
+};
 use super::type_def::{Context, QueryAs, ToField, ToInsertRow, ToPatch, ToUpdateRow};
 
 // /////
@@ -63,7 +65,7 @@ pub trait Build<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPat
     fn build(ctx: &C, statement: SqlStatement<I, U, F, P>) -> Builder<'_, C, Self, I, U, F, P> {
         Builder::<C, Self, I, U, F, P> {
             statement,
-            filters: Self::keys(),
+            filters: Self::keys(ctx),
             schema: Self::schema(),
             ctx,
             query_as: PhantomData,
@@ -80,12 +82,15 @@ pub trait Build<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPat
 
 /// Provides the row-level authorization key filters for a domain type.
 ///
-/// `keys()` returns the base [`FilterOp`] set that is always appended to every query
-/// produced by this domain's builder — typically a `sys_client` equality filter that
-/// scopes all DB access to the current tenant. The `#[schema]` macro generates a
-/// default (empty) implementation; override it to enforce row-level auth.
+/// `keys` receives the request context and returns the predicate appended to
+/// every SELECT, UPDATE, and PATCH. INSERT ignores it. The first tenant rule
+/// is equality on `sys_client`, taken from [`crate::context::ContextAccessor::sys_clients`].
+/// The default is no predicate. A repo that has a `sys_client` column overrides
+/// this and returns [`super::map_util::sys_client_key`].
 pub trait KeyAuths<F: ToField> {
-    fn keys() -> Vec<FilterOp<F>>;
+    fn keys<C: crate::context::ContextAccessor>(_ctx: &C) -> Vec<FilterOp<F>> {
+        Vec::new()
+    }
 }
 
 /// High-level CRUD API for domain structs.
@@ -196,8 +201,8 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
     ///
     /// Filters are combined with the schema-level key-auth filters already present.
     /// Call this before any `fetch_*` / `execute` method.
-    pub fn filter(mut self, mut values: Vec<FilterOp<F>>) -> Self {
-        self.filters.append(&mut values);
+    pub fn filter(mut self, values: Vec<FilterOp<F>>) -> Self {
+        extend_filters(&mut self.filters, values);
         self
     }
     /// Override the default `RETURNING *` clause with a specific column list.
@@ -234,6 +239,10 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
 
     fn session(&self) -> &Session {
         self.ctx.session()
+    }
+
+    fn sys_clients(&self) -> Option<Vec<i32>> {
+        self.ctx.sys_clients()
     }
 }
 

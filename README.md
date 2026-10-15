@@ -135,6 +135,7 @@ let client = HttpServiceClient::new(ServiceClientConfig {
     user_id: ctx.session().user_id,
     micro_service_key: ctx.custom().micro_service_key.clone(),
     micro_service_pass: ctx.custom().micro_service_pass.clone(),
+    sys_clients: None,
 });
 let body: QueueStatus = client.get("/internal/status").await?;
 ```

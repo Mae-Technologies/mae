@@ -4,6 +4,7 @@
 //! [`HttpServiceClient`](crate::service::HttpServiceClient)) and injects
 //! [`Session`](crate::session::Session) from the `X-Session-User` header.
 
+use crate::context::{IncomingSysClients, SYS_CLIENT_HEADER, parse_sys_client_header};
 use crate::session::Session;
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
@@ -49,6 +50,9 @@ where
 
     if pass_ok {
         req.extensions_mut().insert(Session(user_id));
+        if let Some(raw) = req.headers().get(SYS_CLIENT_HEADER).and_then(|h| h.to_str().ok()) {
+            req.extensions_mut().insert(IncomingSysClients(Some(parse_sys_client_header(raw))));
+        }
         return next.call(req).await;
     }
 

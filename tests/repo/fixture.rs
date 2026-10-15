@@ -11,9 +11,10 @@
 //! - `PatchField` — used with `patch` (enum; each variant holds one field value)
 //! - `Field` — used for SELECT projections and WHERE filters
 //!
-//! `KeyAuths` is implemented manually here with an empty key set because `repoexample`
-//! is not tenant-scoped in tests. Production structs override this to enforce
-//! `sys_client` filtering.
+//! `KeyAuths::keys` receives the request context. This fixture returns no
+//! predicate because `repoexample` is not a tenant. A production repo reads
+//! `ctx.sys_clients()` and returns `sys_client_key(Field::sys_client, ...)`,
+//! which is `FilterOp::Begin(Field::sys_client, Filter::Equals(id))`.
 
 use crate::common::context::Ctx;
 use mae::repo::default::DomainStatus;
@@ -35,10 +36,9 @@ pub struct RepoExample {
 }
 
 impl<F: ToField> KeyAuths<F> for RepoExample {
-    fn keys() -> Vec<FilterOp<F>> {
-        // No tenant-scoping in tests — all rows are visible regardless of sys_client.
-        // Production implementations should return a sys_client filter here.
-        // TODO: This needs to actually add the rows.
+    fn keys<C: mae::context::ContextAccessor>(_ctx: &C) -> Vec<FilterOp<F>> {
+        // No tenant on this fixture. Production staff rows use
+        // `sys_client_key(Field::sys_client, ctx.sys_clients().as_deref())`.
         Vec::<FilterOp<F>>::new()
     }
 }

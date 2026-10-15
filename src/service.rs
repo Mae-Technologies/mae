@@ -16,7 +16,9 @@ pub struct ServiceClientConfig {
     pub base_url: String,
     pub user_id: i32,
     pub micro_service_key: String,
-    pub micro_service_pass: String
+    pub micro_service_pass: String,
+    /// `None` omits the company header. `Some` is sent as `X-Sys-Client`.
+    pub sys_clients: Option<Vec<i32>>
 }
 
 /// Generic HTTP client that forwards the active session user and micro-service credentials.
@@ -25,7 +27,8 @@ pub struct HttpServiceClient {
     base_url: String,
     user_id: i32,
     micro_service_key: String,
-    micro_service_pass: String
+    micro_service_pass: String,
+    sys_clients: Option<Vec<i32>>
 }
 
 fn unwrap_service_data(mut value: Value) -> Value {
@@ -117,7 +120,8 @@ impl HttpServiceClient {
             base_url: config.base_url,
             user_id: config.user_id,
             micro_service_key: config.micro_service_key,
-            micro_service_pass: config.micro_service_pass
+            micro_service_pass: config.micro_service_pass,
+            sys_clients: config.sys_clients
         }
     }
 
@@ -137,6 +141,14 @@ impl HttpServiceClient {
             ServiceError::Unexpected(anyhow::anyhow!("invalid service pass header value: {e}"))
         })?;
         map.insert(name, val);
+
+        if let Some(ids) = &self.sys_clients {
+            let raw = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
+            let company = raw.parse::<header::HeaderValue>().map_err(|e| {
+                ServiceError::Unexpected(anyhow::anyhow!("invalid X-Sys-Client header: {e}"))
+            })?;
+            map.insert(header::HeaderName::from_static("x-sys-client"), company);
+        }
 
         Ok(map)
     }
@@ -254,7 +266,7 @@ impl HttpServiceClient {
 mod tests {
     use super::*;
     use crate::route::response::ServiceError;
-    use crate::testing::must::{Must, must_eq};
+    use crate::testing::must::{Must, must_be_true, must_eq};
     use reqwest::StatusCode as ReqStatus;
 
     #[test]
@@ -335,12 +347,58 @@ mod tests {
             base_url: "http://localhost:8080".to_string(),
             user_id: 7,
             micro_service_key: "X-Service-Key".to_string(),
-            micro_service_pass: "secret-pass".to_string()
+            micro_service_pass: "secret-pass".to_string(),
+            sys_clients: Some(vec![3])
         });
 
         let headers = client.base_headers().expect("headers");
         must_eq(headers.get("X-Session-User").expect("user").to_str().expect("str"), "7");
         must_eq(headers.get("X-Service-Key").expect("key").to_str().expect("str"), "secret-pass");
+        must_eq(headers.get("x-sys-client").expect("company").to_str().expect("str"), "3");
+
+        let open = HttpServiceClient::new(ServiceClientConfig {
+            base_url: "http://localhost:8080".to_string(),
+            user_id: 7,
+            micro_service_key: "X-Service-Key".to_string(),
+            micro_service_pass: "secret-pass".to_string(),
+            sys_clients: None
+        });
+        must_be_true(open.base_headers().expect("headers").get("x-sys-client").is_none());
+
+        let nobody = HttpServiceClient::new(ServiceClientConfig {
+            base_url: "http://localhost:8080".to_string(),
+            user_id: 7,
+            micro_service_key: "X-Service-Key".to_string(),
+            micro_service_pass: "secret-pass".to_string(),
+            sys_clients: Some(vec![])
+        });
+        must_eq(
+            nobody
+                .base_headers()
+                .expect("headers")
+                .get("x-sys-client")
+                .expect("company")
+                .to_str()
+                .expect("str"),
+            ""
+        );
+
+        let both = HttpServiceClient::new(ServiceClientConfig {
+            base_url: "http://localhost:8080".to_string(),
+            user_id: 7,
+            micro_service_key: "X-Service-Key".to_string(),
+            micro_service_pass: "secret-pass".to_string(),
+            sys_clients: Some(vec![3, 4])
+        });
+        must_eq(
+            both.base_headers()
+                .expect("headers")
+                .get("x-sys-client")
+                .expect("company")
+                .to_str()
+                .expect("str"),
+            "3,4"
+        );
 
         let json_headers = client.json_headers().expect("json headers");
         must_eq(
