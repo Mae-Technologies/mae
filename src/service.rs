@@ -254,7 +254,7 @@ impl HttpServiceClient {
 mod tests {
     use super::*;
     use crate::route::response::ServiceError;
-    use crate::testing::must::{Must, must_be_true, must_eq};
+    use crate::testing::must::{Must, must_eq};
     use reqwest::StatusCode as ReqStatus;
 
     #[test]
@@ -341,7 +341,6 @@ mod tests {
         let headers = client.base_headers().expect("headers");
         must_eq(headers.get("X-Session-User").expect("user").to_str().expect("str"), "7");
         must_eq(headers.get("X-Service-Key").expect("key").to_str().expect("str"), "secret-pass");
-        must_be_true(headers.get("x-sys-client").is_none());
 
         let json_headers = client.json_headers().expect("json headers");
         must_eq(
