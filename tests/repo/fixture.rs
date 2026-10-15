@@ -11,9 +11,8 @@
 //! - `PatchField` — used with `patch` (enum; each variant holds one field value)
 //! - `Field` — used for SELECT projections and WHERE filters
 //!
-//! `KeyAuths::keys` is required. This fixture keys `sys_client` to `1, 2, 3`.
-//! A production repo passes the request's companies instead of a fixed list:
-//! `sys_client_key(Field::sys_client, ctx.sys_clients().as_deref())`.
+//! `KeyAuths::keys` reads the companies on the `&ctx` passed to `select`,
+//! `update`, and `patch`. The repo tests pass a context limited to `1, 2, 3`.
 
 use crate::common::context::Ctx;
 use mae::repo::default::DomainStatus;
@@ -35,8 +34,8 @@ pub struct RepoExample {
 }
 
 impl KeyAuths<Field> for RepoExample {
-    fn keys<C: mae::context::ContextAccessor>(_ctx: &C) -> Vec<FilterOp<Field>> {
-        mae::repo::filter::sys_client_key(Field::sys_client, Some(&[1, 2, 3]))
+    fn keys<C: mae::context::ContextAccessor>(ctx: &C) -> Vec<FilterOp<Field>> {
+        mae::repo::filter::sys_client_key(Field::sys_client, ctx.sys_clients().as_deref())
     }
 }
 

@@ -82,11 +82,11 @@ pub trait Build<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPat
 
 /// Provides the row-level authorization key filters for a domain type.
 ///
-/// `keys` receives the request context and returns the predicate appended to
-/// every SELECT, UPDATE, and PATCH. INSERT ignores it. The first tenant rule
-/// is equality on `sys_client`, taken from the request's grant snapshot via
-/// [`crate::context::ContextAccessor::sys_clients`]. The default is no predicate.
-/// A repo that has a `sys_client` column overrides this and returns
+/// `select`, `update`, and `patch` pass their `&ctx` into [`Build::build`], which
+/// calls `keys` at that moment. Read the grant from that argument
+/// ([`crate::context::ContextAccessor::sys_clients`]). It is not stored on
+/// [`crate::context::PgContext`]. INSERT ignores the predicate. The default is
+/// no predicate. A repo that has a `sys_client` column overrides this and returns
 /// [`super::map_util::sys_client_key`].
 pub trait KeyAuths<F: ToField> {
     fn keys<C: crate::context::ContextAccessor>(_ctx: &C) -> Vec<FilterOp<F>> {

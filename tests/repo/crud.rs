@@ -1,4 +1,4 @@
-use crate::common::context::get_context;
+use crate::common::context::{context_with_companies, keyed_context};
 use crate::repo::fixture::Field;
 use crate::repo::fixture::{self, RepoExample};
 use anyhow::Result;
@@ -37,7 +37,7 @@ fn should_make_domain_struct() {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn should_insert() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let data = fixture::gen_insert_row(); // let data = RepoExample {
     // };
@@ -56,7 +56,7 @@ async fn should_insert() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn should_get_empty_records() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let mut builder = fixture::RepoExample::select(&ctx, vec![Field::All]);
 
@@ -77,7 +77,7 @@ async fn should_get_empty_records() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn should_get_records() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let data = fixture::gen_insert_row();
 
@@ -103,7 +103,7 @@ async fn should_get_records() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn update_without_caller_filter_keeps_the_required_key() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let data = fixture::gen_update_row();
     let builder = fixture::RepoExample::update(&ctx, data);
@@ -119,7 +119,7 @@ async fn update_without_caller_filter_keeps_the_required_key() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn should_error_on_update_with_row_fields_all_none() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let data = fixture::UpdateRow {
         status: None,
@@ -146,7 +146,7 @@ async fn should_error_on_update_with_row_fields_all_none() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn should_update() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let new_data = fixture::gen_insert_row();
 
@@ -168,7 +168,7 @@ async fn should_update() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn patch_without_caller_filter_keeps_the_required_key() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let data = fixture::gen_patches();
     let builder = fixture::RepoExample::patch(&ctx, data);
@@ -185,7 +185,7 @@ async fn patch_without_caller_filter_keeps_the_required_key() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn should_error_on_patch_with_fields_empty() -> Result<()> {
-    let ctx = get_context().await.must();
+    let ctx = keyed_context().await.must();
 
     let data: Vec<fixture::PatchField> = vec![];
     let mut builder = fixture::RepoExample::patch(&ctx, data);
@@ -203,7 +203,7 @@ async fn should_error_on_patch_with_fields_empty() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn patch_should_return_empty() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let data = fixture::gen_patches();
     let mut builder = fixture::RepoExample::patch(&ctx, data);
@@ -224,7 +224,7 @@ async fn patch_should_return_empty() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn should_patch() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let data = fixture::gen_patches();
     let mut builder = fixture::RepoExample::patch(&ctx, data);
@@ -241,7 +241,7 @@ async fn should_patch() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn required_key_hides_rows_outside_the_list() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
     let marker = format!("key-{}", uuid::Uuid::new_v4().simple());
 
     for (company, label) in [(1, "one"), (2, "two"), (3, "three"), (9, "nine")] {
@@ -281,5 +281,26 @@ async fn required_key_hides_rows_outside_the_list() -> Result<()> {
         })
         .await?;
     must_eq(hidden, 1);
+    Ok(())
+}
+
+/// The company list is whatever grant is on the `&ctx` passed to the repo.
+/// An open snapshot adds no `sys_client` predicate. One company is one equality.
+/// An empty list matches nobody.
+#[cfg_attr(miri, ignore)]
+#[mae_test(docker, teardown = mae::testing::container::teardown_all)]
+async fn key_reads_the_grant_on_the_passed_context() -> Result<()> {
+    let one = context_with_companies(Some(vec![9])).await?;
+    let one_sql = format!("{:?}", RepoExample::update(&one, fixture::gen_update_row()));
+    must_be_true(one_sql.contains("_x_.sys_client = "));
+    must_eq(one_sql.matches("OR _x_.sys_client = ").count(), 0);
+
+    let open = context_with_companies(None).await?;
+    let open_sql = format!("{:?}", RepoExample::update(&open, fixture::gen_update_row()));
+    must_be_true(!open_sql.contains("sys_client"));
+
+    let nobody = context_with_companies(Some(vec![])).await?;
+    let nobody_sql = format!("{:?}", RepoExample::patch(&nobody, fixture::gen_patches()));
+    must_be_true(nobody_sql.contains("_x_.sys_client = ANY("));
     Ok(())
 }

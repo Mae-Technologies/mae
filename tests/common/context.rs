@@ -10,6 +10,21 @@ pub async fn get_context() -> Result<Ctx> {
     mae::testing::context::get_context::<TestContext>().await
 }
 
+/// Grant snapshot for the repo fixture: companies 1, 2, and 3.
+/// `RepoExample::keys` reads this from the `&ctx` the ORM call receives.
+pub async fn keyed_context() -> Result<Ctx> {
+    context_with_companies(Some(vec![1, 2, 3])).await
+}
+
+/// `None` is an open snapshot. `Some([])` matches no rows.
+pub async fn context_with_companies(companies: Option<Vec<i32>>) -> Result<Ctx> {
+    let grants = match companies {
+        None => mae::grants::Grants::open(),
+        Some(ids) => mae::grants::Grants::companies(ids)
+    };
+    mae::testing::context::get_context_with_grants::<TestContext>(Some(grants)).await
+}
+
 #[cfg(test)]
 mod test_context {
     use anyhow::Result;

@@ -46,8 +46,19 @@ impl<T: Clone> RequestContext<T> {
         })
     }
     pub async fn new(db_pool: Arc<PgPool>, session: Arc<Session>, custom: Arc<T>) -> Result<Self> {
+        Self::with_snapshot(db_pool, session, custom, None)
+    }
+
+    /// Same as [`new`](Self::new), with the snapshot middleware would have copied.
+    /// Crate-private. Tests reach it through `mae::testing`. There is no setter.
+    pub(crate) fn with_snapshot(
+        db_pool: Arc<PgPool>,
+        session: Arc<Session>,
+        custom: Arc<T>,
+        grants: Option<Grants>
+    ) -> Result<Self> {
         let pg_context = Arc::new(PgContext::new(db_pool)?);
-        Ok(RequestContext { pg_context, session, custom, grants: Arc::new(StdMutex::new(None)) })
+        Ok(RequestContext { pg_context, session, custom, grants: Arc::new(StdMutex::new(grants)) })
     }
 }
 impl<T> FromRequest for RequestContext<T>
@@ -96,6 +107,9 @@ where
     }
 }
 
+/// Pool and transaction for one request.
+/// Company grants are not stored here. `select`, `update`, and `patch` receive
+/// `&ctx` and read the snapshot from that argument.
 #[derive(Clone)]
 pub struct PgContext {
     pub tx: Arc<Mutex<Option<PgTransaction<'static>>>>,
