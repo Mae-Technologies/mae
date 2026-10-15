@@ -21,7 +21,7 @@ async fn pg_context_new_initializes_empty_transaction_slot() {
 #[tokio::test]
 async fn request_context_exposes_session_user_via_accessor() {
     let pool = lazy_pool();
-    let session = Arc::new(Session(Some(42)));
+    let session = Arc::new(Session(Some(42), mae::grants::Grants::open()));
     let custom = Arc::new(());
 
     let ctx = RequestContext::new(pool, session, custom).await.expect("request context");

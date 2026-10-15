@@ -8,11 +8,11 @@ Pair with [`mae_macros`](https://crates.io/crates/mae_macros) for proc-macro hel
 
 ```toml
 [dependencies]
-mae = "0.3"
+mae = "0.4"
 mae_macros = "0.1"
 
 [dev-dependencies]
-mae = { version = "0.3", features = ["test-utils"] }
+mae = { version = "0.4", features = ["test-utils"] }
 ```
 
 ## What you get
@@ -21,6 +21,7 @@ mae = { version = "0.3", features = ["test-utils"] }
 |--------|---------|
 | [`app`](src/app/mod.rs) | Config loading, context builder, Actix server runner |
 | [`context`](src/context.rs) | `RequestContext<YourAppContext>` — pool, session, custom config per request |
+| [`grants`](src/grants.rs) | Row grants in Redis. `GrantWriter` writes. `GrantStore` only reads |
 | [`repo`](src/repo/mod.rs) | Typed Postgres repository layer (`WithExecutor`, filters, `DomainStatus`) |
 | [`route`](src/route/mod.rs) | `Success` / `ServiceError` / `ServiceResult` HTTP envelope + health routes |
 | [`middleware`](src/middleware/mod.rs) | Session and micro-service auth extractors (wired by `#[run_app]`) |
@@ -91,8 +92,10 @@ pub struct WidgetRepo {
     pub kind: String,
 }
 
-// Use WithExecutor in usecases:
-// WidgetRepo::find().filter(...).fetch_one(&ctx).await?
+// WidgetRepo::select(&ctx, vec![Field::All])
+//     .filter(filters)
+//     .fetch_one(WithExecutor::Pool)
+//     .await?
 ```
 
 Use `#[schema_root]` for the `sys_client` table (no `sys_client` FK column).
@@ -116,11 +119,12 @@ Clients always receive `{ "data": ... }` on success; errors map to consistent HT
 use mae::repo::WithExecutor;
 use mae::route::response::ServiceError;
 
-pub async fn create_widget(ctx: &RequestContext<AppContext>, input: CreateWidget) -> Result<WidgetRepo, ServiceError> {
-    let mut tx = ctx.pg_context.begin().await?;
-    let row = WidgetRepo::insert(input.into(), &mut tx).await?;
-    tx.commit().await?;
-    Ok(row)
+pub async fn create_widget(ctx: &RequestContext<AppContext>, input: CreateWidget) -> Result<(), ServiceError> {
+    WidgetRepo::insert_one(ctx, input.into())
+        .fetch_all(WithExecutor::Transaction)
+        .await?;
+    ctx.pg_context.commit().await?;
+    Ok(())
 }
 ```
 
@@ -131,15 +135,44 @@ use mae::context::ContextAccessor;
 use mae::service::{HttpServiceClient, ServiceClientConfig};
 
 let client = HttpServiceClient::new(ServiceClientConfig {
-    base_url: ctx.custom().queue_service_url.clone(),
-    user_id: ctx.session().user_id,
-    micro_service_key: ctx.custom().micro_service_key.clone(),
-    micro_service_pass: ctx.custom().micro_service_pass.clone(),
+    base_url: ctx.custom.queue_service_url.clone(),
+    user_id: ctx.session().session_or_err()?,
+    micro_service_key: ctx.custom.micro_service_key.clone(),
+    micro_service_pass: ctx.custom.micro_service_pass.clone(),
 });
 let body: QueueStatus = client.get("/internal/status").await?;
 ```
 
-Downstream services should expose the same `ServiceResult` JSON envelope.
+The hop carries the session user and the service credential. It does not carry company lists or custom views. Downstream services should expose the same `ServiceResult` JSON envelope.
+
+## Row grants
+
+Limits live in Redis at `statbook:grants:{user_id}`, not on the wire and not on `PgContext`. The API writes the snapshot with `GrantWriter` at login and on every role change. A downstream service keeps a read-only `GrantStore` and returns it from `MicroserviceAuth::grant_store`. `get_microservice_session` copies the snapshot onto `Session`: `.0` is the user id and `.1` is `Grants`. There is no setter, and `GrantStore` cannot write Redis.
+
+```rust
+use mae::grants::{GrantWriter, Grants};
+
+let grants = Grants::new(Some(vec![3, 4]));
+writer.put(user_id, &grants).await?;
+```
+
+`Grants::new(None)` is unrestricted. `Grants::new(Some(vec![]))` matches nobody. `sys_clients()` is the getter. Ids are sorted and unique. Fields are private.
+
+A domain turns that list into its own table predicate. The Redis name does not have to be the table or the column. `select`, `update`, and `patch` pass `&ctx` into `keys`. Insert ignores it.
+
+```rust
+use mae::context::ContextAccessor;
+use mae::repo::filter::{FilterOp, sys_client_key};
+use mae::repo::implement::KeyAuths;
+
+impl KeyAuths<Field> for StaffContractor {
+    fn keys<C: ContextAccessor>(ctx: &C) -> Vec<FilterOp<Field>> {
+        sys_client_key(Field::sys_client, ctx.session().1.sys_clients().as_deref())
+    }
+}
+```
+
+No user id on the call leaves the query unrestricted. A user id with a missing or unreadable snapshot is rejected. Redis down, or no `GrantStore`, is HTTP 503.
 
 ### 7. Encrypted fields + TOTP (optional)
 

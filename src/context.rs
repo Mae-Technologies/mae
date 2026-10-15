@@ -33,14 +33,13 @@ impl<T: Clone> RequestContext<T> {
         session: ReqData<Session>,
         custom: Data<T>
     ) -> Result<Self> {
-        let pg_context = Arc::new(PgContext::new(db_pool.into_inner())?);
-        Ok(RequestContext {
-            pg_context,
-            session: Arc::new(session.into_inner()),
-            custom: custom.into_inner()
-        })
+        Self::assemble(db_pool.into_inner(), Arc::new(session.into_inner()), custom.into_inner())
     }
     pub async fn new(db_pool: Arc<PgPool>, session: Arc<Session>, custom: Arc<T>) -> Result<Self> {
+        Self::assemble(db_pool, session, custom)
+    }
+
+    fn assemble(db_pool: Arc<PgPool>, session: Arc<Session>, custom: Arc<T>) -> Result<Self> {
         let pg_context = Arc::new(PgContext::new(db_pool)?);
         Ok(RequestContext { pg_context, session, custom })
     }
@@ -74,17 +73,12 @@ where
             }
         };
 
-        let pg_ctx = match PgContext::new(db_pool) {
-            Ok(pg_ctx) => pg_ctx,
-            Err(e) => return ready(Err(ErrorInternalServerError(e)))
-        };
-
-        let ctx = RequestContext { pg_context: Arc::new(pg_ctx), session, custom };
-
-        ready(Ok(ctx))
+        ready(Self::assemble(db_pool, session, custom).map_err(ErrorInternalServerError))
     }
 }
 
+/// Pool and transaction for one request.
+/// Company grants live on [`Session`](crate::session::Session), not here.
 #[derive(Clone)]
 pub struct PgContext {
     pub tx: Arc<Mutex<Option<PgTransaction<'static>>>>,
@@ -96,6 +90,7 @@ impl PgContext {
         let tx = Arc::new(Mutex::new(None));
         Ok(PgContext { tx, db_pool })
     }
+
     pub async fn with_tx<R, F>(&self, f: F) -> Result<R>
     where
         F: for<'tx> FnOnce(&'tx mut PgTransaction) -> TxFuture<'tx, R>
@@ -167,5 +162,50 @@ impl<C: Clone> ContextAccessor for RequestContext<C> {
 
     fn session(&self) -> &Session {
         &self.session
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RequestContext;
+    use crate::context::ContextAccessor;
+    use crate::grants::Grants;
+    use crate::session::Session;
+    use crate::testing::must::{MustExpect, must_be_true, must_eq};
+    use actix_web::FromRequest;
+    use actix_web::HttpMessage;
+    use actix_web::test::TestRequest;
+    use actix_web::web::Data;
+    use std::sync::Arc;
+
+    async fn companies_from(grants: Grants) -> Option<Vec<i32>> {
+        let pool = sqlx::PgPool::connect_lazy("postgres://fake:fake@127.0.0.1:9/fake")
+            .must_expect("lazy pool");
+        let srv =
+            TestRequest::get().app_data(Data::new(pool)).app_data(Data::new(())).to_srv_request();
+        srv.extensions_mut().insert(Session(Some(7), grants));
+        let (req, _payload) = srv.into_parts();
+        let ctx = RequestContext::<()>::extract(&req).await.must_expect("ctx");
+        must_eq(ctx.session().0, Some(7));
+        ctx.session().1.sys_clients()
+    }
+
+    /// The snapshot is the second field of the session middleware inserted.
+    #[tokio::test]
+    async fn request_context_reads_the_session_grants() {
+        must_be_true(companies_from(Grants::open()).await.is_none());
+        must_eq(companies_from(Grants::companies(vec![4, 3, 3])).await, Some(vec![3, 4]));
+        must_eq(companies_from(Grants::companies(vec![])).await, Some(vec![]));
+
+        let pool = sqlx::PgPool::connect_lazy("postgres://fake:fake@127.0.0.1:9/fake")
+            .must_expect("lazy pool");
+        let built = RequestContext::new(
+            Arc::new(pool),
+            Arc::new(Session(None, Grants::companies(vec![9]))),
+            Arc::new(())
+        )
+        .await
+        .must_expect("new");
+        must_eq(built.session().1.sys_clients(), Some(vec![9]));
     }
 }

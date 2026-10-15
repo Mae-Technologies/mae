@@ -7,11 +7,13 @@
 //!
 //! - [`app`] — configuration, `DeriveContext`, Actix server `run`
 //! - [`context`] — [`RequestContext`] (pool + session + custom config per request)
+//! - [`grants`] — row grants in Redis. [`GrantWriter`](grants::GrantWriter) at login,
+//!   read-only [`GrantStore`](grants::GrantStore) on the request
 //! - [`repo`] — typed Postgres layer: [`WithExecutor`](repo::WithExecutor), filters, [`DomainStatus`](repo::default::DomainStatus)
 //! - [`posting`] — multi-step post orchestration ([`PostingController`](posting::PostingController))
 //! - [`route`] — [`Success`](route::response::Success), [`ServiceError`](route::response::ServiceError), health routes
 //! - [`middleware`] — session / micro-service auth (installed by `#[run_app]`)
-//! - [`session`] — logged-in user identity
+//! - [`session`] — logged-in user id and the grant snapshot on that session
 //! - [`service`] — [`HttpServiceClient`](service::HttpServiceClient) for downstream HTTP
 //! - [`crypto`] / [`totp`] — optional field encryption and TOTP helpers
 //! - [`util`] — small shared helpers
@@ -28,6 +30,7 @@
 pub mod app;
 pub mod context;
 pub mod crypto;
+pub mod grants;
 pub mod middleware;
 pub mod posting;
 pub mod repo;

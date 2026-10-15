@@ -1,4 +1,4 @@
-use crate::common::context::get_context;
+use crate::common::context::{context_with_companies, keyed_context};
 use crate::repo::fixture::Field;
 use crate::repo::fixture::{self, RepoExample};
 use anyhow::Result;
@@ -37,7 +37,7 @@ fn should_make_domain_struct() {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn should_insert() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let data = fixture::gen_insert_row(); // let data = RepoExample {
     // };
@@ -56,7 +56,7 @@ async fn should_insert() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn should_get_empty_records() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let mut builder = fixture::RepoExample::select(&ctx, vec![Field::All]);
 
@@ -77,7 +77,7 @@ async fn should_get_empty_records() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn should_get_records() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let data = fixture::gen_insert_row();
 
@@ -98,19 +98,19 @@ async fn should_get_records() -> Result<()> {
     Ok(())
 }
 
-/// Validates that calling `update_many` without any `.filter(…)` returns an error.
-/// This is a safety guard — an unfiltered UPDATE would overwrite every row in the table.
+/// An update with no caller filter is still limited to the required key
+/// `sys_client` in 1, 2, 3. The SQL is inspected and not executed.
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
-async fn should_error_on_update_without_filters() -> Result<()> {
-    let ctx = get_context().await?;
+async fn update_without_caller_filter_keeps_the_required_key() -> Result<()> {
+    let ctx = keyed_context().await?;
 
     let data = fixture::gen_update_row();
     let builder = fixture::RepoExample::update(&ctx, data);
+    let rendered = format!("{builder:?}");
 
-    let res = builder.fetch_all(WithExecutor::Transaction).await;
-    res.err().must();
-    // TODO: this should error, but the error message should also be checked.
+    must_be_true(rendered.contains("_x_.sys_client = "));
+    must_eq(rendered.matches("OR _x_.sys_client = ").count(), 2);
     Ok(())
 }
 
@@ -119,7 +119,7 @@ async fn should_error_on_update_without_filters() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn should_error_on_update_with_row_fields_all_none() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let data = fixture::UpdateRow {
         status: None,
@@ -146,7 +146,7 @@ async fn should_error_on_update_with_row_fields_all_none() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn should_update() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let new_data = fixture::gen_insert_row();
 
@@ -163,19 +163,19 @@ async fn should_update() -> Result<()> {
     Ok(())
 }
 
-/// Validates that calling `patch` without any `.filter(…)` returns an error containing
-/// the "Unable to Update/Patch" message. Mirrors the equivalent update guard test.
+/// A patch with no caller filter is still limited to the required key
+/// `sys_client` in 1, 2, 3. The SQL is inspected and not executed.
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
-async fn should_error_on_patch_without_filters() -> Result<()> {
-    let ctx = get_context().await?;
+async fn patch_without_caller_filter_keeps_the_required_key() -> Result<()> {
+    let ctx = keyed_context().await?;
 
     let data = fixture::gen_patches();
     let builder = fixture::RepoExample::patch(&ctx, data);
+    let rendered = format!("{builder:?}");
 
-    let res = builder.fetch_all(WithExecutor::Transaction).await;
-    //
-    must_be_true(res.err().must().to_string().contains("Unable to Update/Patch"));
+    must_be_true(rendered.contains("_x_.sys_client = "));
+    must_eq(rendered.matches("OR _x_.sys_client = ").count(), 2);
     Ok(())
 }
 
@@ -185,7 +185,7 @@ async fn should_error_on_patch_without_filters() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn should_error_on_patch_with_fields_empty() -> Result<()> {
-    let ctx = get_context().await.must();
+    let ctx = keyed_context().await.must();
 
     let data: Vec<fixture::PatchField> = vec![];
     let mut builder = fixture::RepoExample::patch(&ctx, data);
@@ -203,7 +203,7 @@ async fn should_error_on_patch_with_fields_empty() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn patch_should_return_empty() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let data = fixture::gen_patches();
     let mut builder = fixture::RepoExample::patch(&ctx, data);
@@ -224,7 +224,7 @@ async fn patch_should_return_empty() -> Result<()> {
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn should_patch() -> Result<()> {
-    let ctx = get_context().await?;
+    let ctx = keyed_context().await?;
 
     let data = fixture::gen_patches();
     let mut builder = fixture::RepoExample::patch(&ctx, data);
@@ -233,5 +233,74 @@ async fn should_patch() -> Result<()> {
     let _ = builder.fetch_all(WithExecutor::Transaction).await?;
 
     // TODO: the result should match the input
+    Ok(())
+}
+
+/// The required key is `sys_client` in 1, 2, 3. A row for company 9 is stored
+/// and then omitted from the select.
+#[cfg_attr(miri, ignore)]
+#[mae_test(docker, teardown = mae::testing::container::teardown_all)]
+async fn required_key_hides_rows_outside_the_list() -> Result<()> {
+    let ctx = keyed_context().await?;
+    let marker = format!("key-{}", uuid::Uuid::new_v4().simple());
+
+    for (company, label) in [(1, "one"), (2, "two"), (3, "three"), (9, "nine")] {
+        let mut row = fixture::gen_insert_row();
+        row.sys_client = company;
+        row.string_value = format!("{marker}-{label}");
+        RepoExample::insert_one(&ctx, row).fetch_all(WithExecutor::Transaction).await?;
+    }
+
+    let rows = RepoExample::select(&ctx, vec![Field::All])
+        .filter(vec![FilterOp::Begin(Field::string_value, Filter::Like(format!("{marker}%")))])
+        .fetch_all(WithExecutor::Transaction)
+        .await?;
+
+    let mut companies: Vec<i32> = rows
+        .iter()
+        .filter(|row| row.string_value.starts_with(&marker))
+        .map(|row| row.sys_client)
+        .collect();
+    companies.sort();
+    must_eq(companies, vec![1, 2, 3]);
+    must_be_true(rows.iter().all(|row| matches!(row.sys_client, 1 | 2 | 3)));
+
+    let hidden: i64 = ctx
+        .pg_context
+        .with_tx(|tx| {
+            let nine = format!("{marker}-nine");
+            Box::pin(async move {
+                let count: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM app.repoexample WHERE string_value = $1"
+                )
+                .bind(nine)
+                .fetch_one(&mut **tx)
+                .await?;
+                Ok(count)
+            })
+        })
+        .await?;
+    must_eq(hidden, 1);
+    Ok(())
+}
+
+/// The company list is whatever grant is on the `&ctx` passed to the repo.
+/// An open snapshot adds no `sys_client` predicate. One company is one equality.
+/// An empty list matches nobody.
+#[cfg_attr(miri, ignore)]
+#[mae_test(docker, teardown = mae::testing::container::teardown_all)]
+async fn key_reads_the_grant_on_the_passed_context() -> Result<()> {
+    let one = context_with_companies(Some(vec![9])).await?;
+    let one_sql = format!("{:?}", RepoExample::update(&one, fixture::gen_update_row()));
+    must_be_true(one_sql.contains("_x_.sys_client = "));
+    must_eq(one_sql.matches("OR _x_.sys_client = ").count(), 0);
+
+    let open = context_with_companies(None).await?;
+    let open_sql = format!("{:?}", RepoExample::update(&open, fixture::gen_update_row()));
+    must_be_true(!open_sql.contains("sys_client"));
+
+    let nobody = context_with_companies(Some(vec![])).await?;
+    let nobody_sql = format!("{:?}", RepoExample::patch(&nobody, fixture::gen_patches()));
+    must_be_true(nobody_sql.contains("_x_.sys_client = ANY("));
     Ok(())
 }

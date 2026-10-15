@@ -11,14 +11,13 @@
 //! - `PatchField` — used with `patch` (enum; each variant holds one field value)
 //! - `Field` — used for SELECT projections and WHERE filters
 //!
-//! `KeyAuths` is implemented manually here with an empty key set because `repoexample`
-//! is not tenant-scoped in tests. Production structs override this to enforce
-//! `sys_client` filtering.
+//! `KeyAuths::keys` reads the companies on the `&ctx` passed to `select`,
+//! `update`, and `patch`. The repo tests pass a context limited to `1, 2, 3`.
 
 use crate::common::context::Ctx;
 use mae::repo::default::DomainStatus;
 use mae::repo::filter::{Filter, FilterOp};
-use mae::repo::implement::{KeyAuths, ToField};
+use mae::repo::implement::KeyAuths;
 use mae::repo::macros::schema;
 pub use serde_json::Map;
 pub use sqlx::types::JsonValue as SqlxJson;
@@ -34,12 +33,12 @@ pub struct RepoExample {
     pub string_value: String
 }
 
-impl<F: ToField> KeyAuths<F> for RepoExample {
-    fn keys() -> Vec<FilterOp<F>> {
-        // No tenant-scoping in tests — all rows are visible regardless of sys_client.
-        // Production implementations should return a sys_client filter here.
-        // TODO: This needs to actually add the rows.
-        Vec::<FilterOp<F>>::new()
+impl KeyAuths<Field> for RepoExample {
+    fn keys<C: mae::context::ContextAccessor>(ctx: &C) -> Vec<FilterOp<Field>> {
+        mae::repo::filter::sys_client_key(
+            Field::sys_client,
+            ctx.session().1.sys_clients().as_deref()
+        )
     }
 }
 
