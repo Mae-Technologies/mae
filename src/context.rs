@@ -3,6 +3,7 @@
 //! Services alias this as `type RequestContext = mae::context::RequestContext<AppContext>`
 //! and inject it via `mae::middleware` extractors installed by `#[run_app]`.
 
+use crate::grants::GrantConfig;
 use crate::session::Session;
 use actix_web::web::{Data, ReqData};
 use actix_web::{
@@ -21,32 +22,40 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
 
 #[derive(Clone)]
-pub struct RequestContext<T: Clone> {
+pub struct RequestContext<T: Clone + GrantConfig> {
     pub pg_context: Arc<PgContext>,
-    pub session: Arc<Session>,
+    pub session: Arc<Session<T::Snapshot>>,
     pub custom: Arc<T>
 }
 
-impl<T: Clone> RequestContext<T> {
+impl<T: Clone + GrantConfig> RequestContext<T> {
     pub async fn from_request(
         db_pool: Data<PgPool>,
-        session: ReqData<Session>,
+        session: ReqData<Session<T::Snapshot>>,
         custom: Data<T>
     ) -> Result<Self> {
         Self::assemble(db_pool.into_inner(), Arc::new(session.into_inner()), custom.into_inner())
     }
-    pub async fn new(db_pool: Arc<PgPool>, session: Arc<Session>, custom: Arc<T>) -> Result<Self> {
+    pub async fn new(
+        db_pool: Arc<PgPool>,
+        session: Arc<Session<T::Snapshot>>,
+        custom: Arc<T>
+    ) -> Result<Self> {
         Self::assemble(db_pool, session, custom)
     }
 
-    fn assemble(db_pool: Arc<PgPool>, session: Arc<Session>, custom: Arc<T>) -> Result<Self> {
+    fn assemble(
+        db_pool: Arc<PgPool>,
+        session: Arc<Session<T::Snapshot>>,
+        custom: Arc<T>
+    ) -> Result<Self> {
         let pg_context = Arc::new(PgContext::new(db_pool)?);
         Ok(RequestContext { pg_context, session, custom })
     }
 }
 impl<T> FromRequest for RequestContext<T>
 where
-    T: Clone + 'static
+    T: Clone + GrantConfig + 'static
 {
     type Error = Error;
     type Future = Ready<Result<Self, Self::Error>>;
@@ -66,7 +75,7 @@ where
             }
         };
 
-        let session = match req.extensions().get::<Session>().cloned() {
+        let session = match req.extensions().get::<Session<T::Snapshot>>().cloned() {
             Some(session) => Arc::new(session),
             None => {
                 return ready(Err(ErrorUnauthorized("missing request session")));
@@ -79,6 +88,7 @@ where
 
 /// Pool and transaction for one request.
 /// Company grants live on [`Session`](crate::session::Session), not here.
+/// The snapshot type is [`GrantConfig::Snapshot`](crate::grants::GrantConfig::Snapshot).
 #[derive(Clone)]
 pub struct PgContext {
     pub tx: Arc<Mutex<Option<PgTransaction<'static>>>>,
@@ -146,21 +156,25 @@ impl<'g, 't> DerefMut for PgTxGuard<'g, 't> {
 pub type TxFuture<'tx, R> = Pin<Box<dyn Future<Output = Result<R>> + Send + 'tx>>;
 
 pub trait ContextAccessor {
+    type Snapshot: Clone;
+
     fn pg_context(&self) -> &PgContext;
 
-    fn session(&self) -> &Session;
+    fn session(&self) -> &Session<Self::Snapshot>;
 
     fn session_user(&self) -> Option<i32> {
-        self.session().0
+        self.session().user
     }
 }
 
-impl<C: Clone> ContextAccessor for RequestContext<C> {
+impl<C: Clone + GrantConfig> ContextAccessor for RequestContext<C> {
+    type Snapshot = C::Snapshot;
+
     fn pg_context(&self) -> &PgContext {
         &self.pg_context
     }
 
-    fn session(&self) -> &Session {
+    fn session(&self) -> &Session<Self::Snapshot> {
         &self.session
     }
 }
@@ -169,43 +183,68 @@ impl<C: Clone> ContextAccessor for RequestContext<C> {
 mod tests {
     use super::RequestContext;
     use crate::context::ContextAccessor;
-    use crate::grants::Grants;
+    use crate::grants::{GrantConfig, Grants};
     use crate::session::Session;
     use crate::testing::must::{MustExpect, must_be_true, must_eq};
     use actix_web::FromRequest;
     use actix_web::HttpMessage;
     use actix_web::test::TestRequest;
     use actix_web::web::Data;
+    use serde::{Deserialize, Serialize};
     use std::sync::Arc;
 
-    async fn companies_from(grants: Grants) -> Option<Vec<i32>> {
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    struct Companies {
+        sys_client: Option<Vec<i32>>
+    }
+
+    #[derive(Clone)]
+    struct App;
+
+    impl GrantConfig for App {
+        type Snapshot = Companies;
+    }
+
+    async fn companies_from(grants: Grants<Companies>) -> Option<Vec<i32>> {
         let pool = sqlx::PgPool::connect_lazy("postgres://fake:fake@127.0.0.1:9/fake")
             .must_expect("lazy pool");
         let srv =
-            TestRequest::get().app_data(Data::new(pool)).app_data(Data::new(())).to_srv_request();
-        srv.extensions_mut().insert(Session(Some(7), grants));
+            TestRequest::get().app_data(Data::new(pool)).app_data(Data::new(App)).to_srv_request();
+        srv.extensions_mut().insert(Session { user: Some(7), roles: grants });
         let (req, _payload) = srv.into_parts();
-        let ctx = RequestContext::<()>::extract(&req).await.must_expect("ctx");
-        must_eq(ctx.session().0, Some(7));
-        ctx.session().1.sys_clients()
+        let ctx = RequestContext::<App>::extract(&req).await.must_expect("ctx");
+        must_eq(ctx.session().user, Some(7));
+        ctx.session().roles.snapshot().and_then(|row| row.sys_client.clone())
     }
 
-    /// The snapshot is the second field of the session middleware inserted.
+    /// The snapshot is the roles field of the session middleware inserted.
     #[tokio::test]
     async fn request_context_reads_the_session_grants() {
         must_be_true(companies_from(Grants::open()).await.is_none());
-        must_eq(companies_from(Grants::companies(vec![4, 3, 3])).await, Some(vec![3, 4]));
-        must_eq(companies_from(Grants::companies(vec![])).await, Some(vec![]));
+        must_eq(
+            companies_from(Grants::defined(Companies { sys_client: Some(vec![4, 3]) })).await,
+            Some(vec![4, 3])
+        );
+        must_eq(
+            companies_from(Grants::defined(Companies { sys_client: Some(vec![]) })).await,
+            Some(vec![])
+        );
 
         let pool = sqlx::PgPool::connect_lazy("postgres://fake:fake@127.0.0.1:9/fake")
             .must_expect("lazy pool");
         let built = RequestContext::new(
             Arc::new(pool),
-            Arc::new(Session(None, Grants::companies(vec![9]))),
-            Arc::new(())
+            Arc::new(Session {
+                user: None,
+                roles: Grants::defined(Companies { sys_client: Some(vec![9]) })
+            }),
+            Arc::new(App)
         )
         .await
         .must_expect("new");
-        must_eq(built.session().1.sys_clients(), Some(vec![9]));
+        must_eq(
+            built.session().roles.snapshot().and_then(|row| row.sys_client.clone()),
+            Some(vec![9])
+        );
     }
 }

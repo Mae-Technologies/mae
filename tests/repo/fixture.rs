@@ -33,12 +33,10 @@ pub struct RepoExample {
     pub string_value: String
 }
 
-impl KeyAuths<Field> for RepoExample {
-    fn keys<C: mae::context::ContextAccessor>(ctx: &C) -> Vec<FilterOp<Field>> {
-        mae::repo::filter::sys_client_key(
-            Field::sys_client,
-            ctx.session().1.sys_clients().as_deref()
-        )
+impl KeyAuths<Ctx, Field> for RepoExample {
+    fn keys(ctx: &Ctx) -> Vec<FilterOp<Field>> {
+        let companies = ctx.session.roles.snapshot().and_then(|row| row.sys_client.as_deref());
+        mae::repo::filter::sys_client_key(Field::sys_client, companies)
     }
 }
 

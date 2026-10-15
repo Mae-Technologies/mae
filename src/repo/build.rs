@@ -55,7 +55,7 @@ use super::type_def::{Context, QueryAs, ToField, ToInsertRow, ToPatch, ToUpdateR
 /// - `P` — Patch type (generated as `PatchField`; updates ONLY the supplied fields —
 ///   prefer this over `update_many` for partial mutations)
 pub trait Build<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch>:
-    QueryAs + KeyAuths<F>
+    QueryAs + KeyAuths<C, F>
 {
     /// Construct a [`Builder`] pre-loaded with the given SQL statement variant.
     ///
@@ -82,14 +82,17 @@ pub trait Build<C: Context, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPat
 
 /// Provides the row-level authorization key filters for a domain type.
 ///
-/// `select`, `update`, and `patch` pass their `&ctx` into [`Build::build`], which
-/// calls `keys` at that moment. Read the grant from `ctx.session().1`
-/// ([`crate::grants::Grants::sys_clients`]). It is not stored on
-/// [`crate::context::PgContext`]. INSERT ignores the predicate. The default is
-/// no predicate. A repo that has a `sys_client` column overrides this and returns
+/// `C` is the same context [`Build`] uses, so `keys` can read that
+/// configuration's snapshot (`ctx.session().roles.snapshot()`). The
+/// application turns that document into a predicate. Mae does not.
+///
+/// `select`, `update`, and `patch` pass their `&ctx` into [`Build::build`],
+/// which calls `keys` at that moment. The snapshot is not stored on
+/// [`crate::context::PgContext`]. INSERT ignores the predicate. The default
+/// is no predicate. A repo can build a company filter with
 /// [`super::map_util::sys_client_key`].
-pub trait KeyAuths<F: ToField> {
-    fn keys<C: crate::context::ContextAccessor>(_ctx: &C) -> Vec<FilterOp<F>> {
+pub trait KeyAuths<C: crate::context::ContextAccessor, F: ToField> {
+    fn keys(_ctx: &C) -> Vec<FilterOp<F>> {
         Vec::new()
     }
 }
@@ -234,11 +237,13 @@ impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPa
 impl<C: Context, A: QueryAs, I: ToInsertRow, U: ToUpdateRow, F: ToField, P: ToPatch> ContextAccessor
     for Builder<'_, C, A, I, U, F, P>
 {
+    type Snapshot = C::Snapshot;
+
     fn pg_context(&self) -> &PgContext {
         self.ctx.pg_context()
     }
 
-    fn session(&self) -> &Session {
+    fn session(&self) -> &Session<C::Snapshot> {
         self.ctx.session()
     }
 }

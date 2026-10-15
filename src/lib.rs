@@ -13,7 +13,7 @@
 //! - [`posting`] — multi-step post orchestration ([`PostingController`](posting::PostingController))
 //! - [`route`] — [`Success`](route::response::Success), [`ServiceError`](route::response::ServiceError), health routes
 //! - [`middleware`] — session / micro-service auth (installed by `#[run_app]`)
-//! - [`session`] — logged-in user id and the grant snapshot on that session
+//! - [`session`] — logged-in user id and `Grants<T>` on that session
 //! - [`service`] — [`HttpServiceClient`](service::HttpServiceClient) for downstream HTTP
 //! - [`crypto`] / [`totp`] — optional field encryption and TOTP helpers
 //! - [`util`] — small shared helpers

@@ -1,12 +1,9 @@
-// NOTE: prior implementation of Sessions, entire user roles were posted to the session for ease
-// within app, however, axtix_session does not like nested json types, or any json type other than
-// Map<String, String> --- or HashMap. So the implementation for getting the roles will have to
-// change, within the middleware. IE - get session.user_id => get auth.db.roles()
-//  -- -- leaving these sections commented out until this is implemented.
+// The Actix cookie stores only the user id. The role snapshot is a Redis
+// document, copied onto `Session.roles` by middleware. It is not written
+// back into the cookie.
 use actix_session::{Session as ActixSession, SessionExt, SessionGetError, SessionInsertError};
 use actix_web::dev::Payload;
 use actix_web::{FromRequest, HttpRequest};
-use serde::{Deserialize, Serialize};
 use std::future::{Ready, ready};
 use std::ops::Deref;
 
@@ -15,9 +12,10 @@ use crate::route::response::ServiceError;
 
 /// User id and row grants for one request.
 ///
-/// `.0` is the user id. `None` means the call has no end user. `.1` is the
-/// [`Grants`] snapshot. [`crate::context::ContextAccessor::session_user`] reads
-/// `.0`. A repo key reads `.1`.
+/// `user` is the `sys_user` id. `None` means the call has no end user.
+/// `roles` is [`Grants<T>`](crate::grants::Grants), and `T` is the snapshot
+/// the application config chose. [`crate::context::ContextAccessor::session_user`]
+/// reads `user`. A repo key reads `roles.snapshot()`.
 ///
 /// [`SessionHandler`] only reads the Actix cookie. It does not carry grants.
 /// Microservice middleware loads Redis and inserts this value. The cookie path
@@ -29,42 +27,42 @@ use crate::route::response::ServiceError;
 /// use mae::grants::Grants;
 /// use mae::session::Session;
 ///
-/// let session = Session(Some(42), Grants::open());
+/// let session = Session { user: Some(42), roles: Grants::<()>::open() };
 /// assert_eq!(*session, Some(42));
-/// assert_eq!(session.1.sys_clients(), None);
+/// assert!(session.roles.snapshot().is_none());
 /// assert_eq!(format!("{}", session), "42");
 /// ```
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct Session(
-    /// User id. `None` is an internal call with no end user.
-    pub Option<i32>,
-    /// Companies this request may see. Open adds no predicate.
-    pub Grants
-);
+#[derive(Clone, Debug)]
+pub struct Session<T> {
+    /// `sys_user` id. `None` is an internal call with no end user.
+    pub user: Option<i32>,
+    /// Role snapshot for this request. Open adds no predicate.
+    pub roles: Grants<T>
+}
 
-impl Session {
+impl<T> Session<T> {
     pub fn session_or_err(&self) -> Result<i32, ServiceError> {
-        match self.0 {
+        match self.user {
             Some(id) => Ok(id),
             None => Err(ServiceError::Unauthorized)
         }
     }
 }
 
-impl std::fmt::Display for Session {
+impl<T> std::fmt::Display for Session<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.0 {
+        match self.user {
             Some(id) => write!(f, "{}", id),
             None => write!(f, "none")
         }
     }
 }
 
-impl Deref for Session {
+impl<T> Deref for Session<T> {
     type Target = Option<i32>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.user
     }
 }
 
@@ -98,8 +96,8 @@ impl SessionHandler {
     /// Only the `user_id` integer is stored. Grants are not written into the cookie.
     /// Storing the full [`Session`] struct would produce `{"user_id":N}`, which
     /// cannot later be parsed as `i32`.
-    pub fn insert_session(&self, session_data: Session) -> Result<(), SessionInsertError> {
-        self.0.insert(Self::SESSION_KEY, session_data.0)
+    pub fn insert_session<T>(&self, session_data: Session<T>) -> Result<(), SessionInsertError> {
+        self.0.insert(Self::SESSION_KEY, session_data.user)
     }
 
     /// Read the user id from the store.
@@ -109,22 +107,24 @@ impl SessionHandler {
     ///
     /// Returns an empty user id when no session cookie is present or the session
     /// map has no `user_id`.
-    pub fn get_session(&self) -> Result<Session, SessionGetError> {
+    pub fn get_session<T>(&self) -> Result<Session<T>, SessionGetError> {
         let session_map = self.0.entries();
 
         match session_map.is_empty() {
-            true => Ok(Session(None, Grants::open())),
+            true => Ok(Session { user: None, roles: Grants::open() }),
             false => {
                 let user_id = session_map.get("user_id");
                 match user_id {
                     Some(user_id) => {
                         let user_id = user_id.parse::<i32>();
                         match user_id {
-                            Ok(user_id) => Ok(Session(Some(user_id), Grants::open())),
+                            Ok(user_id) => {
+                                Ok(Session { user: Some(user_id), roles: Grants::open() })
+                            }
                             Err(_) => Err(anyhow::anyhow!("Invalid user_id").into())
                         }
                     }
-                    None => Ok(Session(None, Grants::open()))
+                    None => Ok(Session { user: None, roles: Grants::open() })
                 }
             }
         }
@@ -150,32 +150,32 @@ mod tests {
 
     #[test]
     fn session_or_err_returns_user_id() {
-        let session = Session(Some(99), Grants::open());
+        let session = Session { user: Some(99), roles: Grants::<()>::open() };
         must_eq(session.session_or_err().expect("ok"), 99);
     }
 
     #[test]
     fn session_or_err_missing_is_unauthorized() {
-        let session = Session(None, Grants::open());
+        let session = Session { user: None, roles: Grants::<()>::open() };
         assert!(matches!(session.session_or_err(), Err(ServiceError::Unauthorized)));
     }
 
     #[test]
     fn display_formats_some_and_none() {
-        must_eq(Session(Some(5), Grants::open()).to_string().as_str(), "5");
-        must_eq(Session(None, Grants::open()).to_string().as_str(), "none");
+        must_eq(Session { user: Some(5), roles: Grants::<()>::open() }.to_string().as_str(), "5");
+        must_eq(Session { user: None, roles: Grants::<()>::open() }.to_string().as_str(), "none");
     }
 
     #[test]
     fn deref_exposes_inner_option() {
-        let session = Session(Some(12), Grants::open());
+        let session = Session { user: Some(12), roles: Grants::<()>::open() };
         must_eq(*session, Some(12));
     }
 
     #[test]
-    fn grants_are_the_second_finger() {
-        let session = Session(Some(7), Grants::companies(vec![4, 3, 3]));
-        must_eq(session.0, Some(7));
-        must_eq(session.1.sys_clients(), Some(vec![3, 4]));
+    fn roles_hold_the_snapshot() {
+        let session = Session { user: Some(7), roles: Grants::defined(vec![4, 3]) };
+        must_eq(session.user, Some(7));
+        must_eq(session.roles.snapshot().cloned(), Some(vec![4, 3]));
     }
 }

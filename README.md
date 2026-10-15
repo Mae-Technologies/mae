@@ -8,11 +8,11 @@ Pair with [`mae_macros`](https://crates.io/crates/mae_macros) for proc-macro hel
 
 ```toml
 [dependencies]
-mae = "0.4"
+mae = "0.5"
 mae_macros = "0.1"
 
 [dev-dependencies]
-mae = { version = "0.4", features = ["test-utils"] }
+mae = { version = "0.5", features = ["test-utils"] }
 ```
 
 ## What you get
@@ -147,27 +147,29 @@ The hop carries the session user and the service credential. It does not carry c
 
 ## Row grants
 
-Limits live in Redis at `statbook:grants:{user_id}`, not on the wire and not on `PgContext`. The API writes the snapshot with `GrantWriter` at login and on every role change. A downstream service keeps a read-only `GrantStore` and returns it from `MicroserviceAuth::grant_store`. `get_microservice_session` copies the snapshot onto `Session`: `.0` is the user id and `.1` is `Grants`. There is no setter, and `GrantStore` cannot write Redis.
+Limits live in Redis at `statbook:grants:{user_id}`, not on the wire and not on `PgContext`. The document is the `sys_user` and `sys_roles` snapshot from statbook_models. The application config names that type with `GrantConfig::Snapshot`. Mae stores it and returns it. It does not read company ids out of it.
+
+The API writes the snapshot with `GrantWriter` at login and on every role change. A downstream service keeps a read-only `GrantStore` and returns it from `MicroserviceAuth::grant_store`. `get_microservice_session` copies it onto `Session`: `user` is the `sys_user` id and `roles` is `Grants<T>`. There is no setter, and `GrantStore` cannot write Redis.
 
 ```rust
-use mae::grants::{GrantWriter, Grants};
+use mae::grants::GrantWriter;
 
-let grants = Grants::new(Some(vec![3, 4]));
-writer.put(user_id, &grants).await?;
+writer.put(user_id, &snapshot).await?;
 ```
 
-`Grants::new(None)` is unrestricted. `Grants::new(Some(vec![]))` matches nobody. `sys_clients()` is the getter. Ids are sorted and unique. Fields are private.
+`Grants::open()` is no snapshot (no end user). `Grants::defined(snapshot)` is the document. `snapshot()` is the getter. Fields are private.
 
-A domain turns that list into its own table predicate. The Redis name does not have to be the table or the column. `select`, `update`, and `patch` pass `&ctx` into `keys`. Insert ignores it.
+A domain reads `T` and builds its own table predicate. `select`, `update`, and `patch` pass `&ctx` into `keys`. Insert ignores it.
 
 ```rust
 use mae::context::ContextAccessor;
 use mae::repo::filter::{FilterOp, sys_client_key};
 use mae::repo::implement::KeyAuths;
 
-impl KeyAuths<Field> for StaffContractor {
-    fn keys<C: ContextAccessor>(ctx: &C) -> Vec<FilterOp<Field>> {
-        sys_client_key(Field::sys_client, ctx.session().1.sys_clients().as_deref())
+impl KeyAuths<RequestContext, Field> for StaffContractor {
+    fn keys(ctx: &RequestContext) -> Vec<FilterOp<Field>> {
+        let companies = companies_from(ctx.session.roles.snapshot());
+        sys_client_key(Field::sys_client, companies)
     }
 }
 ```

@@ -1,13 +1,22 @@
 use anyhow::Result;
 use mae::context::RequestContext;
+use serde::{Deserialize, Serialize};
 
 #[derive(Default, Clone)]
 pub struct TestContext {}
 
-pub type Ctx = RequestContext<mae::testing::context::TestContext<TestContext>>;
+/// Repo-test snapshot. The real service uses the statbook_models user and
+/// roles document. This fixture only carries the company list those roles
+/// would have produced.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompanyScope {
+    pub sys_client: Option<Vec<i32>>
+}
+
+pub type Ctx = RequestContext<mae::testing::context::TestContext<TestContext, CompanyScope>>;
 
 pub async fn get_context() -> Result<Ctx> {
-    mae::testing::context::get_context::<TestContext>().await
+    mae::testing::context::get_context::<TestContext, CompanyScope>().await
 }
 
 /// Grant snapshot for the repo fixture: companies 1, 2, and 3.
@@ -20,9 +29,9 @@ pub async fn keyed_context() -> Result<Ctx> {
 pub async fn context_with_companies(companies: Option<Vec<i32>>) -> Result<Ctx> {
     let grants = match companies {
         None => mae::grants::Grants::open(),
-        Some(ids) => mae::grants::Grants::companies(ids)
+        Some(ids) => mae::grants::Grants::defined(CompanyScope { sys_client: Some(ids) })
     };
-    mae::testing::context::get_context_with_grants::<TestContext>(Some(grants)).await
+    mae::testing::context::get_context_with_grants::<TestContext, CompanyScope>(Some(grants)).await
 }
 
 #[cfg(test)]

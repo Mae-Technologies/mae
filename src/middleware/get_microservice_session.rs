@@ -5,10 +5,12 @@
 //! [`Session`](crate::session::Session) from the `X-Session-User` header.
 //! When that user id is present, the grant snapshot is loaded from Redis
 //! through [`MicroserviceAuth::grant_store`] and stored on the [`Session`]
-//! (the second field). That is the only write onto the request. The store
+//! (`roles`). The snapshot type is the application config's
+//! [`crate::grants::GrantConfig::Snapshot`]. That is the only write onto the
+//! request. The store
 //! itself cannot edit Redis. Allow-lists are not headers.
 
-use crate::grants::{GrantDecision, GrantStore, Grants, GrantsError, resolve_grants};
+use crate::grants::{GrantConfig, GrantDecision, GrantStore, Grants, GrantsError, resolve_grants};
 use crate::session::Session;
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
@@ -38,7 +40,7 @@ pub async fn get_microservice_session<T>(
     next: Next<impl MessageBody>
 ) -> Result<ServiceResponse<impl MessageBody>, actix_web::Error>
 where
-    T: MicroserviceAuth + Clone + 'static
+    T: MicroserviceAuth + GrantConfig + Clone + 'static
 {
     let app_ctx = req.app_data::<web::Data<T>>().ok_or_else(|| {
         InternalError::from_response(
@@ -68,10 +70,10 @@ where
 
     if pass_ok {
         let grants = match user_id {
-            None => Grants::open(),
+            None => Grants::<T::Snapshot>::open(),
             Some(id) => {
                 let loaded = match &store {
-                    Some(store) => store.get(id).await,
+                    Some(store) => store.get::<T::Snapshot>(id).await,
                     None => {
                         tracing::warn!(user_id = id, "grant store is not configured");
                         Err(GrantsError::Unavailable)
@@ -88,7 +90,7 @@ where
                 }
             }
         };
-        req.extensions_mut().insert(Session(user_id, grants));
+        req.extensions_mut().insert(Session { user: user_id, roles: grants });
         return next.call(req).await;
     }
 

@@ -14,8 +14,9 @@ pub async fn get_session(
         SessionHandler::from_request(http_req, payload).await
     }?;
 
-    let session = typed_session.get_session().map_err(e500)?;
-    req.extensions_mut().insert(session);
+    // The cookie only has a user id. `get_context` inserts `Session<T::Snapshot>`
+    // for the application snapshot. This check rejects a corrupt `user_id`.
+    let _session = typed_session.get_session::<()>().map_err(e500)?;
     req.extensions_mut().insert(typed_session);
     next.call(req).await
 }
