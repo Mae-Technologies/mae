@@ -135,10 +135,11 @@ let client = HttpServiceClient::new(ServiceClientConfig {
     user_id: ctx.session().user_id,
     micro_service_key: ctx.custom().micro_service_key.clone(),
     micro_service_pass: ctx.custom().micro_service_pass.clone(),
-    sys_clients: None,
 });
 let body: QueueStatus = client.get("/internal/status").await?;
 ```
+
+The hop carries the session user and the service credential. Row grants live in Redis (`mae::grants::GrantStore`, key `statbook:grants:{user_id}`). The API writes that snapshot at login and on role changes. A downstream service implements `MicroserviceAuth::grant_store` and the microservice middleware loads it. No user id leaves the query unrestricted. A user id with no snapshot is rejected.
 
 Downstream services should expose the same `ServiceResult` JSON envelope.
 

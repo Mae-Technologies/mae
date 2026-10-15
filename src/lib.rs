@@ -28,6 +28,7 @@
 pub mod app;
 pub mod context;
 pub mod crypto;
+pub mod grants;
 pub mod middleware;
 pub mod posting;
 pub mod repo;
