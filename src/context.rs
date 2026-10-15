@@ -206,7 +206,7 @@ impl<C: Clone> ContextAccessor for RequestContext<C> {
             .lock()
             .unwrap_or_else(|err| err.into_inner())
             .as_ref()
-            .and_then(|grants| grants.sys_client.clone())
+            .and_then(|grants| grants.sys_clients())
     }
 }
 

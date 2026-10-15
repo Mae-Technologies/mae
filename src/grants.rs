@@ -21,20 +21,31 @@ pub const DEFAULT_TTL: Duration = Duration::from_secs(8 * 60 * 60 + 30 * 60);
 
 /// Companies the user may see. Further collections can be added with
 /// `#[serde(default)]` so an older snapshot still parses.
+///
+/// The field is private. [`Grants::new`] is the only way to build one.
+/// [`Grants::sys_clients`] reads it. [`crate::repo::build::KeyAuths`] turns
+/// that list into the predicate for its own table. The Redis name does not
+/// have to be the table or the column.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Grants {
-    pub sys_client: Option<Vec<i32>>
+    sys_client: Option<Vec<i32>>
 }
 
 impl Grants {
+    /// `None` is unrestricted. `Some` is those companies, sorted and unique.
+    /// An empty list matches nobody.
+    pub fn new(sys_client: Option<Vec<i32>>) -> Self {
+        Self { sys_client: sys_client.map(canonical_ids) }
+    }
+
     /// Super, or any other caller who is not limited by company.
     pub fn open() -> Self {
-        Self { sys_client: None }
+        Self::new(None)
     }
 
     /// These companies only. Ids are sorted and de-duplicated.
     pub fn companies(ids: impl Into<Vec<i32>>) -> Self {
-        Self { sys_client: Some(canonical_ids(ids.into())) }
+        Self::new(Some(ids.into()))
     }
 
     pub fn sys_clients(&self) -> Option<Vec<i32>> {
@@ -95,10 +106,7 @@ fn canonical_ids(mut ids: Vec<i32>) -> Vec<i32> {
 }
 
 fn store_form(grants: &Grants) -> Grants {
-    match &grants.sys_client {
-        Some(ids) => Grants::companies(ids.clone()),
-        None => Grants::open()
-    }
+    Grants::new(grants.sys_clients())
 }
 
 /// An absent `sys_client` key deserializes as `None`, which means unrestricted.
@@ -210,9 +218,11 @@ mod tests {
 
     #[test]
     fn companies_are_sorted_and_unique() {
-        must_eq(Grants::companies(vec![4, 3, 3]).sys_client, Some(vec![3, 4]));
-        must_be_true(Grants::open().sys_client.is_none());
-        must_be_true(Grants::companies(vec![]).sys_client == Some(vec![]));
+        must_eq(Grants::new(Some(vec![4, 3, 3])).sys_clients(), Some(vec![3, 4]));
+        must_eq(Grants::companies(vec![4, 3, 3]).sys_clients(), Some(vec![3, 4]));
+        must_be_true(Grants::open().sys_clients().is_none());
+        must_be_true(Grants::new(None).sys_clients().is_none());
+        must_eq(Grants::companies(vec![]).sys_clients(), Some(vec![]));
     }
 
     #[test]
@@ -224,7 +234,7 @@ mod tests {
         must_eq(parse_snapshot("not-json"), Err(GrantsError::Unreadable));
         let parsed = parse_snapshot("{\"sys_client\":[3,4],\"operation\":[1,11]}")
             .expect("forward compatible");
-        must_eq(parsed.sys_client, Some(vec![3, 4]));
+        must_eq(parsed.sys_clients(), Some(vec![3, 4]));
     }
 
     #[test]

@@ -18,7 +18,7 @@ async fn grant_snapshot_round_trip() -> Result<()> {
     let writer = GrantWriter::connect(scope.url()).await?;
     let store = GrantStore::connect(scope.url()).await?;
 
-    writer.put(7, &Grants { sys_client: Some(vec![4, 3, 3]) }).await?;
+    writer.put(7, &Grants::new(Some(vec![4, 3, 3]))).await?;
     let loaded = store.get(7).await?.ok_or_else(|| anyhow::anyhow!("missing snapshot"))?;
     must_eq(loaded, Grants::companies(vec![3, 4]));
 
