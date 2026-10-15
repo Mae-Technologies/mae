@@ -1,16 +1,20 @@
 //! Row grants for one user, stored in the shared Redis.
 //!
+//! The application config names the snapshot type ([`GrantConfig::Snapshot`]).
+//! That type is the `sys_user` and `sys_roles` document from statbook_models.
+//! Mae does not own those schemas and does not read company ids out of them.
 //! [`GrantWriter`] writes the snapshot at login and whenever roles change.
 //! Request middleware holds a [`GrantStore`], which can only read. It copies
-//! the snapshot onto [`crate::session::Session`] (the second field). There is
-//! no setter. Handlers cannot write Redis through the store. Allow-lists stay
-//! off the wire. A later collection (operations, projects) is another field
-//! on this document.
+//! the snapshot onto [`crate::session::Session::roles`]. There is no setter.
+//! Handlers cannot write Redis through the store. Allow-lists stay off the wire.
 //!
-//! `sys_client: null` is unrestricted. `sys_client: []` matches nobody.
+//! [`Grants::open`] is no snapshot: an internal call with no end user.
+//! [`Grants::defined`] is the document `T`. A repo key reads `T` and builds
+//! its own predicate.
 
 use redis::aio::ConnectionManager;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::time::Duration;
 
 /// Redis key prefix. Distinct from the Actix session keys.
@@ -20,36 +24,43 @@ pub const KEY_PREFIX: &str = "statbook:grants:";
 /// The API writes again on login and on every role change.
 pub const DEFAULT_TTL: Duration = Duration::from_secs(8 * 60 * 60 + 30 * 60);
 
-/// Companies the user may see. Further collections can be added with
-/// `#[serde(default)]` so an older snapshot still parses.
+/// Chooses the Redis document for one service. Implement this on the
+/// application config (`AppContext`), not on a handler.
 ///
-/// The field is private. [`Grants::new`] is the only way to build one.
-/// [`Grants::sys_clients`] reads it. A repo key reads this through
-/// `ctx.session().1`. The Redis name does not have to be the table or the column.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Grants {
-    sys_client: Option<Vec<i32>>
+/// `Snapshot` is the `sys_user` plus `sys_roles` document defined in
+/// statbook_models. Mae stores and returns that value. It does not interpret it.
+pub trait GrantConfig {
+    type Snapshot: Clone + Send + Sync + 'static + Serialize + DeserializeOwned;
 }
 
-impl Grants {
-    /// `None` is unrestricted. `Some` is those companies, sorted and unique.
-    /// An empty list matches nobody.
-    pub fn new(sys_client: Option<Vec<i32>>) -> Self {
-        Self { sys_client: sys_client.map(canonical_ids) }
-    }
+impl GrantConfig for () {
+    type Snapshot = ();
+}
 
-    /// Super, or any other caller who is not limited by company.
+/// Role snapshot for one request. `T` comes from [`GrantConfig::Snapshot`].
+///
+/// The field is private. [`Grants::open`] and [`Grants::defined`] are the
+/// constructors. [`Grants::snapshot`] reads `T`. A repo key uses that value
+/// to build its predicate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Grants<T> {
+    snapshot: Option<T>
+}
+
+impl<T> Grants<T> {
+    /// No snapshot. Key filters add no predicate.
     pub fn open() -> Self {
-        Self::new(None)
+        Self { snapshot: None }
     }
 
-    /// These companies only. Ids are sorted and de-duplicated.
-    pub fn companies(ids: impl Into<Vec<i32>>) -> Self {
-        Self::new(Some(ids.into()))
+    /// The application snapshot, as stored in Redis.
+    pub fn defined(snapshot: T) -> Self {
+        Self { snapshot: Some(snapshot) }
     }
 
-    pub fn sys_clients(&self) -> Option<Vec<i32>> {
-        self.sys_client.clone()
+    /// `None` when the call has no end user. `Some` is the document `T`.
+    pub fn snapshot(&self) -> Option<&T> {
+        self.snapshot.as_ref()
     }
 }
 
@@ -63,11 +74,11 @@ pub enum GrantsError {
 
 /// What a service does with the snapshot for one internal call.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum GrantDecision {
+pub enum GrantDecision<T> {
     /// No end user on the call. Queries stay unrestricted.
     Open,
-    /// Apply this snapshot. An open snapshot adds no company predicate.
-    Apply(Grants),
+    /// Apply this snapshot. The repo key reads `T`.
+    Apply(Grants<T>),
     /// A user id was presented and there is no usable snapshot.
     Deny,
     /// Redis could not answer. Do not fall open.
@@ -75,15 +86,15 @@ pub enum GrantDecision {
 }
 
 /// `None` user id is open even when the lookup failed. A user id never is.
-pub fn resolve_grants(
+pub fn resolve_grants<T>(
     user_id: Option<i32>,
-    loaded: Result<Option<Grants>, GrantsError>
-) -> GrantDecision {
+    loaded: Result<Option<T>, GrantsError>
+) -> GrantDecision<T> {
     let Some(_) = user_id else {
         return GrantDecision::Open;
     };
     match loaded {
-        Ok(Some(grants)) => GrantDecision::Apply(grants),
+        Ok(Some(snapshot)) => GrantDecision::Apply(Grants::defined(snapshot)),
         Ok(None) | Err(GrantsError::Unreadable) => GrantDecision::Deny,
         Err(GrantsError::Unavailable) => GrantDecision::Unavailable
     }
@@ -93,26 +104,9 @@ pub fn key(user_id: i32) -> String {
     format!("{KEY_PREFIX}{user_id}")
 }
 
-fn canonical_ids(mut ids: Vec<i32>) -> Vec<i32> {
-    ids.sort_unstable();
-    ids.dedup();
-    ids
-}
-
-fn store_form(grants: &Grants) -> Grants {
-    Grants::new(grants.sys_clients())
-}
-
-/// An absent `sys_client` key deserializes as `None`, which means unrestricted.
-/// The key has to be present. `null` is unrestricted. `[]` matches nobody.
-fn parse_snapshot(body: &str) -> Result<Grants, GrantsError> {
-    let value: serde_json::Value =
-        serde_json::from_str(body).map_err(|_| GrantsError::Unreadable)?;
-    let obj = value.as_object().ok_or(GrantsError::Unreadable)?;
-    if !obj.contains_key("sys_client") {
-        return Err(GrantsError::Unreadable);
-    }
-    serde_json::from_value(value).map_err(|_| GrantsError::Unreadable)
+/// The Redis value is `T`. Mae does not require a particular field.
+fn parse_snapshot<T: DeserializeOwned>(body: &str) -> Result<T, GrantsError> {
+    serde_json::from_str(body).map_err(|_| GrantsError::Unreadable)
 }
 
 async fn connect_manager(redis_uri: &str) -> Result<ConnectionManager, GrantsError> {
@@ -139,7 +133,7 @@ impl GrantStore {
         Ok(Self { manager: connect_manager(redis_uri).await? })
     }
 
-    pub async fn get(&self, user_id: i32) -> Result<Option<Grants>, GrantsError> {
+    pub async fn get<T: DeserializeOwned>(&self, user_id: i32) -> Result<Option<T>, GrantsError> {
         let mut conn = self.manager.clone();
         let raw: Option<String> =
             redis::cmd("GET").arg(key(user_id)).query_async(&mut conn).await.map_err(|err| {
@@ -170,18 +164,17 @@ impl GrantWriter {
         Ok(Self { manager: connect_manager(redis_uri).await? })
     }
 
-    pub async fn put(&self, user_id: i32, grants: &Grants) -> Result<(), GrantsError> {
-        self.put_ttl(user_id, grants, DEFAULT_TTL).await
+    pub async fn put<T: Serialize>(&self, user_id: i32, snapshot: &T) -> Result<(), GrantsError> {
+        self.put_ttl(user_id, snapshot, DEFAULT_TTL).await
     }
 
-    pub async fn put_ttl(
+    pub async fn put_ttl<T: Serialize>(
         &self,
         user_id: i32,
-        grants: &Grants,
+        snapshot: &T,
         ttl: Duration
     ) -> Result<(), GrantsError> {
-        let body =
-            serde_json::to_string(&store_form(grants)).map_err(|_| GrantsError::Unreadable)?;
+        let body = serde_json::to_string(snapshot).map_err(|_| GrantsError::Unreadable)?;
         let mut conn = self.manager.clone();
         redis::cmd("SET")
             .arg(key(user_id))
@@ -209,26 +202,33 @@ impl GrantWriter {
 mod tests {
     use super::{GrantDecision, Grants, GrantsError, key, parse_snapshot, resolve_grants};
     use crate::testing::must::{must_be_true, must_eq};
+    use serde::{Deserialize, Serialize};
 
-    #[test]
-    fn companies_are_sorted_and_unique() {
-        must_eq(Grants::new(Some(vec![4, 3, 3])).sys_clients(), Some(vec![3, 4]));
-        must_eq(Grants::companies(vec![4, 3, 3]).sys_clients(), Some(vec![3, 4]));
-        must_be_true(Grants::open().sys_clients().is_none());
-        must_be_true(Grants::new(None).sys_clients().is_none());
-        must_eq(Grants::companies(vec![]).sys_clients(), Some(vec![]));
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    struct Sample {
+        sys_client: Vec<i32>
     }
 
     #[test]
-    fn open_snapshot_writes_null_and_a_partial_document_does_not_parse() {
-        let raw = serde_json::to_string(&Grants::open()).expect("json");
-        must_eq(raw.as_str(), "{\"sys_client\":null}");
-        must_eq(parse_snapshot(&raw), Ok(Grants::open()));
-        must_eq(parse_snapshot("{}"), Err(GrantsError::Unreadable));
-        must_eq(parse_snapshot("not-json"), Err(GrantsError::Unreadable));
-        let parsed = parse_snapshot("{\"sys_client\":[3,4],\"operation\":[1,11]}")
-            .expect("forward compatible");
-        must_eq(parsed.sys_clients(), Some(vec![3, 4]));
+    fn open_has_no_snapshot_and_defined_returns_it() {
+        let open = Grants::<Sample>::open();
+        must_be_true(open.snapshot().is_none());
+        let defined = Grants::defined(Sample { sys_client: vec![4, 3] });
+        must_eq(defined.snapshot().map(|row| row.sys_client.clone()), Some(vec![4, 3]));
+    }
+
+    #[test]
+    fn snapshot_json_is_the_document_itself() {
+        let raw = serde_json::to_string(&Sample { sys_client: vec![3, 4] }).expect("json");
+        let parsed: Result<Sample, _> = parse_snapshot(&raw);
+        must_eq(parsed, Ok(Sample { sys_client: vec![3, 4] }));
+        let extra: Result<Sample, _> =
+            parse_snapshot("{\"sys_client\":[3,4],\"operation\":[1,11]}");
+        must_eq(extra, Ok(Sample { sys_client: vec![3, 4] }));
+        let missing: Result<Sample, _> = parse_snapshot("{}");
+        must_eq(missing, Err(GrantsError::Unreadable));
+        let junk: Result<Sample, _> = parse_snapshot("not-json");
+        must_eq(junk, Err(GrantsError::Unreadable));
     }
 
     #[test]
@@ -238,18 +238,20 @@ mod tests {
 
     #[test]
     fn resolve_fails_closed_for_a_user_and_stays_open_without_one() {
-        let companies = Grants::companies(vec![3]);
-        must_eq(resolve_grants(None, Err(GrantsError::Unavailable)), GrantDecision::Open);
+        let snapshot = Sample { sys_client: vec![3] };
+        must_eq(resolve_grants::<Sample>(None, Err(GrantsError::Unavailable)), GrantDecision::Open);
         must_eq(
-            resolve_grants(Some(7), Ok(Some(companies.clone()))),
-            GrantDecision::Apply(companies)
+            resolve_grants(Some(7), Ok(Some(snapshot.clone()))),
+            GrantDecision::Apply(Grants::defined(snapshot))
+        );
+        must_eq(resolve_grants::<Sample>(Some(7), Ok(None)), GrantDecision::Deny);
+        must_eq(
+            resolve_grants::<Sample>(Some(7), Err(GrantsError::Unreadable)),
+            GrantDecision::Deny
         );
         must_eq(
-            resolve_grants(Some(7), Ok(Some(Grants::open()))),
-            GrantDecision::Apply(Grants::open())
+            resolve_grants::<Sample>(Some(7), Err(GrantsError::Unavailable)),
+            GrantDecision::Unavailable
         );
-        must_eq(resolve_grants(Some(7), Ok(None)), GrantDecision::Deny);
-        must_eq(resolve_grants(Some(7), Err(GrantsError::Unreadable)), GrantDecision::Deny);
-        must_eq(resolve_grants(Some(7), Err(GrantsError::Unavailable)), GrantDecision::Unavailable);
     }
 }

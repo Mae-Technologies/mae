@@ -1,4 +1,5 @@
 use crate::context::RequestContext;
+use crate::grants::GrantConfig;
 use crate::route::response::e500;
 use crate::session::SessionHandler;
 use actix_web::body::MessageBody;
@@ -9,7 +10,7 @@ use anyhow::anyhow;
 use sqlx::PgPool;
 use std::sync::Arc;
 
-pub async fn get_context<T: 'static + Clone>(
+pub async fn get_context<T: 'static + Clone + GrantConfig>(
     mut req: ServiceRequest,
     next: Next<impl MessageBody>
 ) -> Result<ServiceResponse<impl MessageBody>, actix_web::Error> {
@@ -18,7 +19,7 @@ pub async fn get_context<T: 'static + Clone>(
         SessionHandler::from_request(http_req, payload).await
     }?;
 
-    let session_data = session.get_session().map_err(e500)?;
+    let session_data = session.get_session::<T::Snapshot>().map_err(e500)?;
     let db_pool = Arc::clone(
         &req.app_data::<web::Data<PgPool>>()
             .ok_or_else(|| anyhow!("Unable to access PgPool."))
@@ -34,7 +35,9 @@ pub async fn get_context<T: 'static + Clone>(
             .clone()
             .into_inner()
     );
-    let ctx = RequestContext::new(db_pool, Arc::new(session_data), custom).await.map_err(e500)?;
+    let ctx =
+        RequestContext::new(db_pool, Arc::new(session_data.clone()), custom).await.map_err(e500)?;
+    req.extensions_mut().insert(session_data);
     req.extensions_mut().insert(ctx.clone());
     let resp = next.call(req).await?;
 

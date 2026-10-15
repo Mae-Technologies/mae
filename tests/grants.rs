@@ -7,7 +7,13 @@
 
 use anyhow::Result;
 use mae::context::{ContextAccessor, RequestContext};
-use mae::grants::{DEFAULT_TTL, GrantStore, GrantWriter, Grants, GrantsError, key};
+use mae::grants::{DEFAULT_TTL, GrantConfig, GrantStore, GrantWriter, GrantsError, key};
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct CompanyScope {
+    sys_client: Option<Vec<i32>>
+}
 use mae::middleware::{MicroserviceAuth, get_microservice_session};
 use mae::testing::must::{must_be_true, must_eq};
 use mae_macros::mae_test;
@@ -18,17 +24,18 @@ async fn grant_snapshot_round_trip() -> Result<()> {
     let writer = GrantWriter::connect(scope.url()).await?;
     let store = GrantStore::connect(scope.url()).await?;
 
-    writer.put(7, &Grants::new(Some(vec![4, 3, 3]))).await?;
-    let loaded = store.get(7).await?.ok_or_else(|| anyhow::anyhow!("missing snapshot"))?;
-    must_eq(loaded, Grants::companies(vec![3, 4]));
+    let snapshot = CompanyScope { sys_client: Some(vec![4, 3, 3]) };
+    writer.put(7, &snapshot).await?;
+    let loaded =
+        store.get::<CompanyScope>(7).await?.ok_or_else(|| anyhow::anyhow!("missing snapshot"))?;
+    must_eq(loaded, snapshot);
 
-    writer.put(7, &Grants::open()).await?;
-    let open = store.get(7).await?.ok_or_else(|| anyhow::anyhow!("missing open snapshot"))?;
-    must_be_true(open.sys_clients().is_none());
-
-    writer.put(8, &Grants::companies(vec![])).await?;
-    let nobody = store.get(8).await?.ok_or_else(|| anyhow::anyhow!("missing empty snapshot"))?;
-    must_eq(nobody.sys_clients(), Some(vec![]));
+    writer.put(8, &CompanyScope { sys_client: Some(vec![]) }).await?;
+    let nobody = store
+        .get::<CompanyScope>(8)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("missing empty snapshot"))?;
+    must_eq(nobody.sys_client, Some(vec![]));
 
     let client = redis::Client::open(scope.url())?;
     let mut conn = client.get_multiplexed_async_connection().await?;
@@ -36,10 +43,10 @@ async fn grant_snapshot_round_trip() -> Result<()> {
     must_be_true(ttl > 0 && ttl as u64 <= DEFAULT_TTL.as_secs());
 
     redis::cmd("SET").arg(key(9)).arg("not-json").query_async::<()>(&mut conn).await?;
-    must_eq(store.get(9).await, Err(GrantsError::Unreadable));
+    must_eq(store.get::<CompanyScope>(9).await, Err(GrantsError::Unreadable));
 
     writer.delete(7).await?;
-    must_be_true(store.get(7).await?.is_none());
+    must_be_true(store.get::<CompanyScope>(7).await?.is_none());
     Ok(())
 }
 
@@ -60,8 +67,13 @@ impl MicroserviceAuth for AppCtx {
     }
 }
 
+impl GrantConfig for AppCtx {
+    type Snapshot = CompanyScope;
+}
+
 async fn listed_companies(ctx: RequestContext<AppCtx>) -> actix_web::HttpResponse {
-    actix_web::HttpResponse::Ok().json(ctx.session().1.sys_clients())
+    let companies = ctx.session().roles.snapshot().and_then(|row| row.sys_client.clone());
+    actix_web::HttpResponse::Ok().json(companies)
 }
 
 async fn stored_snapshot(url: &str, user_id: i32) -> Result<Option<String>> {
@@ -77,7 +89,7 @@ async fn stored_snapshot(url: &str, user_id: i32) -> Result<Option<String>> {
 async fn middleware_copies_the_snapshot_and_does_not_write() -> Result<()> {
     let scope = mae::testing::container::redis::spawn_scoped_keyspace().await?;
     let writer = GrantWriter::connect(scope.url()).await?;
-    writer.put(7, &Grants::companies(vec![4, 3])).await?;
+    writer.put(7, &CompanyScope { sys_client: Some(vec![3, 4]) }).await?;
     let before = stored_snapshot(scope.url(), 7).await?;
 
     let pool = sqlx::PgPool::connect_lazy("postgres://fake:fake@127.0.0.1:9/fake")?;

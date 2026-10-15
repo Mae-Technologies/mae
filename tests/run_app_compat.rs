@@ -24,6 +24,10 @@ use mae::app::prelude::*;
 #[allow(dead_code)]
 struct AppContext;
 
+impl mae::grants::GrantConfig for AppContext {
+    type Snapshot = ();
+}
+
 #[allow(dead_code)]
 struct CompatCheck {
     port: u16,
