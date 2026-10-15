@@ -4,7 +4,9 @@
 //! [`HttpServiceClient`](crate::service::HttpServiceClient)) and injects
 //! [`Session`](crate::session::Session) from the `X-Session-User` header.
 //! When that user id is present, the grant snapshot is loaded from Redis
-//! through [`MicroserviceAuth::grant_store`]. Allow-lists are not headers.
+//! through [`MicroserviceAuth::grant_store`] and placed on the request.
+//! That is the only write onto the request. The store itself cannot edit Redis.
+//! Allow-lists are not headers.
 
 use crate::grants::{GrantDecision, GrantStore, GrantsError, RequestGrants, resolve_grants};
 use crate::session::Session;

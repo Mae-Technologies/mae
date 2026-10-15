@@ -1,9 +1,10 @@
 //! Row grants for one user, stored in the shared Redis.
 //!
-//! The API writes the snapshot at login and whenever roles change. Every other
-//! service reads it by the user id already sent as `X-Session-User`. Allow-lists
-//! stay off the wire. A later collection (operations, projects) is another field
-//! on this document.
+//! [`GrantWriter`] writes the snapshot at login and whenever roles change.
+//! Request middleware holds a [`GrantStore`], which can only read. It copies
+//! the snapshot onto the request. Handlers cannot replace that copy, and they
+//! cannot write Redis through the store. Allow-lists stay off the wire. A
+//! later collection (operations, projects) is another field on this document.
 //!
 //! `sys_client: null` is unrestricted. `sys_client: []` matches nobody.
 
@@ -41,9 +42,11 @@ impl Grants {
     }
 }
 
-/// Snapshot loaded for this request. Absent means the caller has no end user.
+/// Snapshot the microservice middleware places on the request.
+/// Absent means the caller has no end user. Crate-private so a handler or a
+/// downstream middleware cannot forge a wider snapshot.
 #[derive(Clone, Debug)]
-pub struct RequestGrants(pub Grants);
+pub(crate) struct RequestGrants(pub(crate) Grants);
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum GrantsError {
@@ -110,7 +113,19 @@ fn parse_snapshot(body: &str) -> Result<Grants, GrantsError> {
     serde_json::from_value(value).map_err(|_| GrantsError::Unreadable)
 }
 
-/// Shared Redis client for [`Grants`]. Clone is cheap. One store serves every worker.
+async fn connect_manager(redis_uri: &str) -> Result<ConnectionManager, GrantsError> {
+    let client = redis::Client::open(redis_uri).map_err(|err| {
+        tracing::warn!(error = %err, "grant store could not open Redis");
+        GrantsError::Unavailable
+    })?;
+    ConnectionManager::new(client).await.map_err(|err| {
+        tracing::warn!(error = %err, "grant store could not connect to Redis");
+        GrantsError::Unavailable
+    })
+}
+
+/// Read-only Redis client for request middleware. Clone is cheap.
+/// One store serves every worker. This type cannot write or delete a snapshot.
 #[derive(Clone)]
 pub struct GrantStore {
     manager: ConnectionManager
@@ -119,15 +134,38 @@ pub struct GrantStore {
 impl GrantStore {
     /// Connect to the same Redis the session store uses.
     pub async fn connect(redis_uri: &str) -> Result<Self, GrantsError> {
-        let client = redis::Client::open(redis_uri).map_err(|err| {
-            tracing::warn!(error = %err, "grant store could not open Redis");
-            GrantsError::Unavailable
-        })?;
-        let manager = ConnectionManager::new(client).await.map_err(|err| {
-            tracing::warn!(error = %err, "grant store could not connect to Redis");
-            GrantsError::Unavailable
-        })?;
-        Ok(Self { manager })
+        Ok(Self { manager: connect_manager(redis_uri).await? })
+    }
+
+    pub async fn get(&self, user_id: i32) -> Result<Option<Grants>, GrantsError> {
+        let mut conn = self.manager.clone();
+        let raw: Option<String> =
+            redis::cmd("GET").arg(key(user_id)).query_async(&mut conn).await.map_err(|err| {
+                tracing::warn!(error = %err, user_id, "grant snapshot could not be read");
+                GrantsError::Unavailable
+            })?;
+        match raw {
+            None => Ok(None),
+            Some(body) => parse_snapshot(&body)
+                .inspect_err(|_| {
+                    tracing::warn!(user_id, "grant snapshot is not readable");
+                })
+                .map(Some)
+        }
+    }
+}
+
+/// Writes a snapshot at login and on role change.
+/// Request middleware does not hold this type. Do not put it in handler app data.
+#[derive(Clone)]
+pub struct GrantWriter {
+    manager: ConnectionManager
+}
+
+impl GrantWriter {
+    /// Connect to the same Redis the session store uses.
+    pub async fn connect(redis_uri: &str) -> Result<Self, GrantsError> {
+        Ok(Self { manager: connect_manager(redis_uri).await? })
     }
 
     pub async fn put(&self, user_id: i32, grants: &Grants) -> Result<(), GrantsError> {
@@ -154,23 +192,6 @@ impl GrantStore {
                 tracing::warn!(error = %err, user_id, "grant snapshot could not be written");
                 GrantsError::Unavailable
             })
-    }
-
-    pub async fn get(&self, user_id: i32) -> Result<Option<Grants>, GrantsError> {
-        let mut conn = self.manager.clone();
-        let raw: Option<String> =
-            redis::cmd("GET").arg(key(user_id)).query_async(&mut conn).await.map_err(|err| {
-                tracing::warn!(error = %err, user_id, "grant snapshot could not be read");
-                GrantsError::Unavailable
-            })?;
-        match raw {
-            None => Ok(None),
-            Some(body) => parse_snapshot(&body)
-                .inspect_err(|_| {
-                    tracing::warn!(user_id, "grant snapshot is not readable");
-                })
-                .map(Some)
-        }
     }
 
     pub async fn delete(&self, user_id: i32) -> Result<(), GrantsError> {
