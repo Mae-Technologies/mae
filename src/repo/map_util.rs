@@ -213,21 +213,15 @@ impl Display for Filter {
 
 /// Company predicate for [`crate::repo::build::KeyAuths::keys`].
 ///
-/// `None` adds no row. `Some(&[id])` is `sys_client = id`. Further ids are
-/// `OR sys_client = id`. An empty slice matches no rows.
+/// `None` adds no row. `Some` is one `sys_client = ANY($n)` predicate, including
+/// a single id. An empty slice matches no rows. One predicate so a later AND,
+/// such as the company selected on the request, applies to the whole grant.
+/// An OR chain would let that AND bind only to the last company.
 pub fn sys_client_key<F: Clone + ToField>(field: F, companies: Option<&[i32]>) -> Vec<FilterOp<F>> {
     let Some(companies) = companies else {
         return Vec::new();
     };
-    let mut ids = companies.iter().copied();
-    let Some(first) = ids.next() else {
-        return vec![FilterOp::Begin(field, Filter::In(Vec::new()))];
-    };
-    let mut out = vec![FilterOp::Begin(field.clone(), Filter::Equals(first))];
-    for id in ids {
-        out.push(FilterOp::Or(field.clone(), Filter::Equals(id)));
-    }
-    out
+    vec![FilterOp::Begin(field, Filter::In(companies.to_vec()))]
 }
 
 /// Append caller filters after the key filters. A leading `Begin` becomes
@@ -475,21 +469,33 @@ mod tests {
     }
 
     #[test]
-    fn sys_client_key_equals_one_company() {
+    fn sys_client_key_one_company_is_one_any() {
         let filters = sys_client_key(TestField::Name, Some(&[3]));
         must_be_true(filters.len() == 1);
         let sql = sql_where(&filters, 0, None);
-        must_be_true(sql.contains("name = $1"));
+        must_be_true(sql.contains("name = ANY($1)"));
         must_be_true(!sql.contains("OR "));
     }
 
     #[test]
-    fn sys_client_key_ors_further_companies() {
-        let filters = sys_client_key(TestField::Name, Some(&[3, 4]));
-        must_be_true(filters.len() == 2);
+    fn sys_client_key_many_companies_stay_one_predicate() {
+        let filters = sys_client_key(TestField::Name, Some(&[1, 2, 3, 4]));
+        must_be_true(filters.len() == 1);
         let sql = sql_where(&filters, 0, None);
-        must_be_true(sql.contains("name = $1"));
-        must_be_true(sql.contains("OR name = $2"));
+        must_be_true(sql.contains("name = ANY($1)"));
+        must_be_true(!sql.contains("OR "));
+    }
+
+    /// Statbook Central #87. A grant of companies 1–4 plus the selected company
+    /// must not return the other companies. `AND` binds tighter than `OR`.
+    #[test]
+    fn sys_client_key_and_selected_company_applies_to_the_whole_grant() {
+        let mut filters = sys_client_key(TestField::Name, Some(&[1, 2, 3, 4]));
+        extend_filters(&mut filters, vec![FilterOp::Begin(TestField::Name, Filter::Equals(2))]);
+        let sql = sql_where(&filters, 0, None);
+        must_be_true(sql.contains("name = ANY($1)"));
+        must_be_true(sql.contains("AND name = $2"));
+        must_be_true(!sql.contains("OR "));
     }
 
     #[test]
