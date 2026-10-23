@@ -109,8 +109,8 @@ async fn update_without_caller_filter_keeps_the_required_key() -> Result<()> {
     let builder = fixture::RepoExample::update(&ctx, data);
     let rendered = format!("{builder:?}");
 
-    must_be_true(rendered.contains("_x_.sys_client = "));
-    must_eq(rendered.matches("OR _x_.sys_client = ").count(), 2);
+    must_be_true(rendered.contains("_x_.sys_client = ANY("));
+    must_eq(rendered.matches("OR _x_.sys_client = ").count(), 0);
     Ok(())
 }
 
@@ -174,8 +174,8 @@ async fn patch_without_caller_filter_keeps_the_required_key() -> Result<()> {
     let builder = fixture::RepoExample::patch(&ctx, data);
     let rendered = format!("{builder:?}");
 
-    must_be_true(rendered.contains("_x_.sys_client = "));
-    must_eq(rendered.matches("OR _x_.sys_client = ").count(), 2);
+    must_be_true(rendered.contains("_x_.sys_client = ANY("));
+    must_eq(rendered.matches("OR _x_.sys_client = ").count(), 0);
     Ok(())
 }
 
@@ -285,8 +285,8 @@ async fn required_key_hides_rows_outside_the_list() -> Result<()> {
 }
 
 /// The company list is whatever grant is on the `&ctx` passed to the repo.
-/// An open snapshot adds no `sys_client` predicate. One company is one equality.
-/// An empty list matches nobody.
+/// An open snapshot adds no `sys_client` predicate. A company list is one
+/// `= ANY` predicate. An empty list matches nobody.
 #[cfg_attr(miri, ignore)]
 #[mae_test(docker, teardown = mae::testing::container::teardown_all)]
 async fn key_reads_the_grant_on_the_passed_context() -> Result<()> {
