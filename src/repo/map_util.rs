@@ -504,6 +504,18 @@ mod tests {
         must_be_true(filters.is_empty());
     }
 
+    /// Statbook Central #87. An open super grant adds no company predicate, so
+    /// the selected company is the whole filter.
+    #[test]
+    fn sys_client_key_open_grant_selected_company_is_the_whole_filter() {
+        let mut filters = sys_client_key(TestField::Name, None);
+        extend_filters(&mut filters, vec![FilterOp::Begin(TestField::Name, Filter::Equals(2))]);
+        let sql = sql_where(&filters, 0, None);
+        must_be_true(sql.contains("name = $1"));
+        must_be_true(!sql.contains("ANY"));
+        must_be_true(!sql.contains("OR "));
+    }
+
     #[test]
     fn sys_client_key_empty_list_matches_no_rows() {
         let filters = sys_client_key(TestField::Name, Some(&[]));
